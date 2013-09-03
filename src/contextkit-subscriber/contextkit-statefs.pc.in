@@ -1,0 +1,9 @@
+prefix=@prefix@
+libdir=${prefix}/@DST_LIB@
+includedir=${prefix}/include/qt5
+
+Name: contextkit-statefs
+Description: Contextkit subscriber Qt5 interface to statefs
+Version: @STATEFS_QT_VERSION@
+Libs: -lcontextkit-statefs-qt5
+Cflags: -I${includedir}

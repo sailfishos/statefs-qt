@@ -1,0 +1,9 @@
+prefix=@prefix@
+libdir=${prefix}/@DST_LIB@
+includedir=${prefix}/include/qt4
+
+Name: contextkit-statefs-qt4
+Description: Contextkit subscriber Qt4 interface to statefs
+Version: @STATEFS_QT_VERSION@
+Libs: -lcontextkit-statefs-qt4
+Cflags: -I${includedir}/contextsubscriber

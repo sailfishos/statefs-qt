@@ -1,0 +1,19 @@
+/** @file main.dox
+    Statefs Qt bindings documentation
+    @brief Filesystem to expose system state
+*/
+
+/** @mainpage StateFS Qt Bindings
+
+    StateFS is a filesystem and can be accessed directly using
+    standard file APIs. So, functionality available in this library is
+    optional but while statefs tree structure and location in
+    filesystem hierarchy is not stable yet usage of this library
+    increases compatibility of code with future changes in statefs.
+    All functions and classes are members of the namespace statefs::qt.
+
+    @ref util
+
+    @ref inout
+
+*/
