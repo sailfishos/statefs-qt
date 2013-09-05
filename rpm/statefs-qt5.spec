@@ -87,6 +87,6 @@ rm -rf %{buildroot}
 
 %files %{subscriber_devel}
 %defattr(-,root,root,-)
-%{_qt5_headerdir}/contextproperty.h
+%{_includedir}/contextproperty.h
 %{_libdir}/pkgconfig/contextkit-statefs.pc
 
