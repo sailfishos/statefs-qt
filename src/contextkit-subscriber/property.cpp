@@ -11,12 +11,88 @@
 #include <memory>
 #include <poll.h>
 
+
+// TODO move to cor
+// gcc 4.6 future::wait_for() returns bool instead of future_status
+// adding forward-compatibility
+
+template <class ResT> struct ChooseRightFuture {};
+
+template <>
+struct ChooseRightFuture<bool> {
+
+    template <class T, class Rep, class Period>
+    std::future_status wait_for
+    (std::future<T> const &future
+     , const std::chrono::duration<Rep,Period>& timeout) {
+        bool status = future.wait_for(timeout);
+        return status ? std::future_status::ready : std::future_status::timeout;
+    }
+};
+
+template <>
+struct ChooseRightFuture<std::future_status> {
+
+    template <class T, class Rep, class Period>
+    std::future_status wait_for
+    (std::future<T> const &future
+     , const std::chrono::duration<Rep,Period>& timeout) {
+        return future.wait_for(timeout);
+    }
+};
+
+template<class T, class Rep, class Period>
+std::future_status wait_for
+(std::future<T> const &future, const std::chrono::duration<Rep,Period>& timeout)
+{
+    auto impl = ChooseRightFuture<decltype(future.wait_for(timeout))>();
+    return impl.template wait_for<>(future, timeout);
+}
+
+
 namespace ckit
 {
 
-static QMutex actorGuard;
-static ckit::Actor<ckit::PropertyMonitor> *propertyMonitor = nullptr;
-static bool isActorCreated = false;
+class Event : public QEvent
+{
+public:
+    enum Type {
+        Subscribe = QEvent::User,
+        Unsubscribe,
+        Subscribed
+    };
+
+    virtual ~Event();
+
+protected:
+    Event(Type t);
+private:
+    Event();
+
+};
+
+QMutex PropertyMonitor::actorGuard_;
+ckit::Actor<ckit::PropertyMonitor> *PropertyMonitor::propertyMonitor_ = nullptr;
+bool PropertyMonitor::isActorCreated_ = false;
+
+ckit::Actor<ckit::PropertyMonitor> * PropertyMonitor::instance()
+{
+    if (isActorCreated_)
+        return propertyMonitor_;
+
+    QMutexLocker lock(&actorGuard_);
+
+    if (isActorCreated_)
+        return propertyMonitor_;
+
+    propertyMonitor_ = new ckit::Actor<ckit::PropertyMonitor>([]() {
+            return new ckit::PropertyMonitor();
+        });
+
+    isActorCreated_ = true;
+    return propertyMonitor_;
+}
+
 
 Event::Event(Event::Type t)
     : QEvent(static_cast<QEvent::Type>(t))
@@ -24,35 +100,47 @@ Event::Event(Event::Type t)
 
 Event::~Event() {}
 
-
-class PropertyRequest : public Event
+class SubscribeRequest : public Event
 {
 public:
-    PropertyRequest(Event::Type
-                    , ContextPropertyPrivate const*
-                    , QString const&
-                    , std::function<void()>);
-    virtual ~PropertyRequest();
+    SubscribeRequest(ContextPropertyPrivate const *tgt
+                    , QString const&key
+                    , std::promise<QVariant> &&res)
+        : Event(Event::Subscribe)
+        , tgt_(tgt)
+        , key_(key)
+        , value_(std::move(res))
+    {}
+    virtual ~SubscribeRequest() {}
 
     ContextPropertyPrivate const *tgt_;
     QString key_;
-    std::function<void()> done_;
+    std::promise<QVariant> value_;
+
+private:
+    SubscribeRequest(SubscribeRequest const&);
 };
 
-PropertyRequest::PropertyRequest(Event::Type t
-                                 , ContextPropertyPrivate const *tgt
-                                 , QString const &key
-                                 , std::function<void()> done)
-    : Event(t)
-    , tgt_(tgt)
-    , key_(key)
-    , done_(done)
-{}
 
-PropertyRequest::~PropertyRequest()
+class UnsubscribeRequest : public Event
 {
-    done_();
-}
+public:
+    UnsubscribeRequest(ContextPropertyPrivate const *tgt
+                    , QString const &key
+                    , std::promise<void> &&done)
+        : Event(Event::Unsubscribe)
+        , tgt_(tgt)
+        , key_(key)
+        , done_(std::move(done))
+    {}
+    virtual ~UnsubscribeRequest() {}
+
+    UnsubscribeRequest(SubscribeRequest const&) = delete;
+
+    ContextPropertyPrivate const *tgt_;
+    QString key_;
+    std::promise<void> done_;
+};
 
 bool PropertyMonitor::event(QEvent *e)
 {
@@ -60,26 +148,38 @@ bool PropertyMonitor::event(QEvent *e)
         return QObject::event(e);
 
     auto t = static_cast<Event::Type>(e->type());
-    switch (t) {
-    case Event::Subscribe: {
-        auto p = static_cast<PropertyRequest*>(e);
-        subscribe(p->tgt_, p->key_);
-        break;
-    }
-    case Event::Unsubscribe: {
-        auto p = static_cast<PropertyRequest*>(e);
-        unsubscribe(p->tgt_, p->key_);
-        p->done_();
-        break;
-    }
-    default:
-        return QObject::event(e);
+    try {
+        switch (t) {
+        case Event::Subscribe: {
+            auto p = dynamic_cast<SubscribeRequest*>(e);
+            if (p)
+                subscribe(p);
+            else
+                qWarning() << "PropertyMonitor: !SubscribeRequest";
+            break;
+        }
+        case Event::Unsubscribe: {
+            auto p = dynamic_cast<UnsubscribeRequest*>(e);
+            if (p)
+                unsubscribe(p);
+            else
+                qWarning() << "PropertyMonitor: !UnsubscribeRequest";
+            break;
+        }
+        default:
+            return QObject::event(e);
+        }
+    } catch (std::exception const &ex) {
+        qWarning() << "PropertyMonitor::event: Caught '"
+                   << ex.what() << "' for " << t << "\n";
     }
     return true;
 }
 
-void PropertyMonitor::subscribe(ContextPropertyPrivate const *tgt, const QString &key)
+void PropertyMonitor::subscribe(SubscribeRequest *req)
 {
+    auto tgt = req->tgt_;
+    auto key = req->key_;
     CKitProperty *handler;
     auto it = targets_.find(key);
     if (it == targets_.end()) {
@@ -96,12 +196,16 @@ void PropertyMonitor::subscribe(ContextPropertyPrivate const *tgt, const QString
     // TODO when qt4 support will be removed
     //connect(handler, &CKitProperty::changed, tgt, &ContextPropertyPrivate::changed);
     connect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
-    handler->subscribe();
+
+    auto v = handler->subscribe();
+    req->value_.set_value(v);
 }
 
-void PropertyMonitor::unsubscribe
-(ContextPropertyPrivate const *tgt, const QString &key)
+void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 {
+    auto tgt = req->tgt_;
+    auto key = req->key_;
+
     auto t_it = targets_.find(key);
     if (t_it == targets_.end())
         return;
@@ -128,6 +232,7 @@ void PropertyMonitor::unsubscribe
     targets_.erase(t_it);
     properties_.erase(h_it);
     handler->deleteLater();
+    req->done_.set_value();
 }
 
 CKitProperty* PropertyMonitor::add(const QString &key)
@@ -157,11 +262,12 @@ CKitProperty::~CKitProperty()
     unsubscribe();
 }
 
-void CKitProperty::trySubscribe() const
+void CKitProperty::trySubscribe()
 {
     if (tryOpen()) {
         reopen_interval_ = 100;
-        return subscribe();
+        subscribe();
+        return;
     }
 
     reopen_interval_ *= 2;
@@ -171,7 +277,7 @@ void CKitProperty::trySubscribe() const
     reopen_timer_->start(reopen_interval_);
 }
 
-void CKitProperty::resubscribe() const
+void CKitProperty::resubscribe()
 {
     bool was_subscribed = is_subscribed_;
     unsubscribe();
@@ -180,15 +286,16 @@ void CKitProperty::resubscribe() const
         subscribe();
 }
 
-void CKitProperty::update()
+bool CKitProperty::update()
 {
     static const size_t cap = 31;
+    bool is_updated = false;
 
     if (!tryOpen()) {
         qWarning() << "Can't open " << file_.fileName();
         cache_ = statefs::qt::valueDefault(cache_);
         resubscribe();
-        return;
+        return is_updated;
     }
 
     // WORKAROUND: file is just opened and closed before reading from
@@ -218,11 +325,13 @@ void CKitProperty::update()
         if (s.size()) {
             cache_ = statefs::qt::valueDecode(s);
         } else {
-            if (cache_.isNull())
+            if (cache_.isNull()) {
                 cache_ = s;
-            else
+            } else {
                 cache_ = statefs::qt::valueDefault(cache_);
+            }
         }
+        is_updated = true;
 
         if (notifier_)
             notifier_->setEnabled(true);
@@ -230,6 +339,7 @@ void CKitProperty::update()
         qWarning() << "Error accessing? " << rc << "..." << file_.fileName();
         resubscribe();
     }
+    return is_updated;
 }
 
 
@@ -282,7 +392,7 @@ void CKitProperty::handleActivated(int)
     emit changed(cache_);
 }
 
-bool CKitProperty::tryOpen() const
+bool CKitProperty::tryOpen()
 {
     if (file_.isOpen())
         return true;
@@ -299,22 +409,27 @@ bool CKitProperty::tryOpen() const
     return true;
 }
 
-void CKitProperty::subscribe() const
+QVariant CKitProperty::subscribe()
 {
     if (is_subscribed_)
-        return;
+        return cache_;
 
     is_subscribed_ = true;
-    if (!tryOpen())
-        return reopen_timer_->start(reopen_interval_);
+    if (!tryOpen()) {
+        reopen_timer_->start(reopen_interval_);
+        return QVariant();
+    }
 
+    if (update())
+        emit changed(cache_);
     notifier_.reset(new QSocketNotifier(file_.handle(), QSocketNotifier::Read));
     connect(notifier_.data(), SIGNAL(activated(int))
             , this, SLOT(handleActivated(int)));
     notifier_->setEnabled(true);
+    return cache_;
 }
 
-void CKitProperty::unsubscribe() const
+void CKitProperty::unsubscribe()
 {
     if (!is_subscribed_)
         return;
@@ -336,7 +451,7 @@ void CKitProperty::unsubscribe() const
 ContextPropertyPrivate::ContextPropertyPrivate(const QString &key, QObject *parent)
     : QObject(parent)
     , key_(key)
-    , is_subscribed_(false)
+    , state_(Unsubscribed)
     , is_cached_(false)
 {
 }
@@ -363,26 +478,26 @@ QVariant ContextPropertyPrivate::value() const
 
 ckit::Actor<ckit::PropertyMonitor> * ContextPropertyPrivate::actor()
 {
-    using namespace ckit;
-    if (isActorCreated)
-        return propertyMonitor;
-    QMutexLocker lock(&ckit::actorGuard);
-    if (isActorCreated)
-        return propertyMonitor;
-    propertyMonitor = new ckit::Actor<ckit::PropertyMonitor>([]() {
-            return new ckit::PropertyMonitor();
-        });
-    isActorCreated = true;
-    return propertyMonitor;
+    return ckit::PropertyMonitor::instance();
 }
 
 void ContextPropertyPrivate::changed(QVariant v)
 {
+    if (state_ == Subscribing)
+        state_ = Subscribed;
+
+    if (update(v))
+        emit valueChanged();
+}
+
+bool ContextPropertyPrivate::update(QVariant const &v) const
+{
     if (v.isNull() || (is_cached_ && v == cache_))
-        return;
+        return false;
+
     is_cached_ = true;
     cache_ = v;
-    emit valueChanged();
+    return true;
 }
 
 
@@ -393,36 +508,60 @@ const ContextPropertyInfo* ContextPropertyPrivate::info() const
 
 void ContextPropertyPrivate::subscribe() const
 {
-    if (is_subscribed_)
+    if (state_ != Unsubscribed)
         return;
 
-    auto ev = new ckit::PropertyRequest
-        (ckit::Event::Subscribe, this, key_, []() {});
+    state_ = Subscribing;
+    std::promise<QVariant> res;
+    on_subscribed_ = res.get_future();
+    auto ev = new ckit::SubscribeRequest(this, key_, std::move(res));
     actor()->postEvent(ev);
-    is_subscribed_ = true;
 }
 
 void ContextPropertyPrivate::unsubscribe() const
 {
-    if (!is_subscribed_)
+    if (state_ == Unsubscribed)
         return;
 
-    cor::Future future;
-
-    auto ev = new ckit::PropertyRequest
-        (ckit::Event::Unsubscribe, this, key_, future.waker());
-    actor()->postEvent(ev);
-    // wait until unsubscribed
-    future.wait(std::chrono::milliseconds(20000));
-    is_subscribed_ = false;
+    try {
+        std::promise<void> res;
+        on_unsubscribed_ = res.get_future();
+        auto ev = new ckit::UnsubscribeRequest(this, key_, std::move(res));
+        actor()->postEvent(ev);
+        on_unsubscribed_.wait_for(std::chrono::milliseconds(20000));
+        state_ = Unsubscribed;
+    } catch (std::exception const &e) {
+        qWarning() << "unsubscribe: Caught '" << e.what() << "'\n";
+    }
 }
+
 
 void ContextPropertyPrivate::waitForSubscription() const
 {
+    if (state_ == Subscribed)
+        return;
+
+    // wait until unsubscribed
+    try {
+        auto status = wait_for(on_subscribed_, std::chrono::milliseconds(5000));
+        if (status == std::future_status::ready) {
+            update(on_subscribed_.get());
+        }
+        state_ = Subscribed;
+    } catch (std::exception const &e) {
+        qWarning() << "waitForSubscription: Caught '" << e.what() << "'\n";
+    }
 }
 
 void ContextPropertyPrivate::waitForSubscription(bool block) const
 {
+    if (block)
+        return waitForSubscription();
+
+    while (state_ != Subscribed) {
+        QCoreApplication::processEvents();
+    }
+    state_ = Subscribed;
 }
 
 void ContextPropertyPrivate::ignoreCommander()
