@@ -144,6 +144,8 @@ QString valueEncode(QVariant const& v)
     switch(v.type()) {
     case QVariant::Bool:
         return v.toBool() ? "1" : "0";
+    case QVariant::Char:
+        return QString::number(v.toInt());
     default:
         return v.toString();
     }
