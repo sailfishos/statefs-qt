@@ -244,7 +244,9 @@ CKitProperty* PropertyMonitor::add(const QString &key)
 CKitProperty::CKitProperty(const QString &key, QObject *parent)
     : QObject(parent)
     , key_(key)
-    , file_(statefs::qt::getPath(key))
+    , user_file_(statefs::qt::getPath(key))
+    , sys_file_(statefs::qt::getSystemPath(key))
+    , file_(&user_file_)
     , notifier_(nullptr)
     , reopen_interval_(100)
     , reopen_timer_(new QTimer(this))
@@ -292,7 +294,7 @@ bool CKitProperty::update()
     bool is_updated = false;
 
     if (!tryOpen()) {
-        qWarning() << "Can't open " << file_.fileName();
+        qWarning() << "Can't open " << file_->fileName();
         cache_ = statefs::qt::valueDefault(cache_);
         resubscribe();
         return is_updated;
@@ -300,21 +302,21 @@ bool CKitProperty::update()
 
     // WORKAROUND: file is just opened and closed before reading from
     // real source to make vfs (?) reread file data to cache
-    QFile touchFile(file_.fileName());
+    QFile touchFile(file_->fileName());
     touchFile.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
 
-    file_.seek(0);
-    auto size = file_.size();
+    file_->seek(0);
+    auto size = file_->size();
     if (buffer_.size() < size)
         buffer_.resize(size + cap + 1);
 
-    int rc = file_.read(buffer_.data(), size + cap);
+    int rc = file_->read(buffer_.data(), size + cap);
     if (rc > size) {
         int read = 0;
         while (rc > 0) {
             read += rc;
             buffer_.resize(buffer_.size() + read + 1);
-            rc = file_.read(buffer_.data() + read, read);
+            rc = file_->read(buffer_.data() + read, read);
         }
         rc = read;
     }
@@ -336,7 +338,7 @@ bool CKitProperty::update()
         if (notifier_)
             notifier_->setEnabled(true);
     } else {
-        qWarning() << "Error accessing? " << rc << "..." << file_.fileName();
+        qWarning() << "Error accessing? " << rc << "..." << file_->fileName();
         resubscribe();
     }
     return is_updated;
@@ -369,12 +371,12 @@ void CKitProperty::handleActivated(int)
     if (++rate_ > max_rate_) {
         auto now = ::time(nullptr);
         if (now == now_) {
-            if (check_for_poll_err(file_.handle())) {
-                qWarning() << "Unpollable file " << file_.fileName()
+            if (check_for_poll_err(file_->handle())) {
+                qWarning() << "Unpollable file " << file_->fileName()
                            << " is polled, disabling handling";
                 return;
             }
-            auto fname = file_.fileName();
+            auto fname = file_->fileName();
             if (rate_ < 200) {
                 max_rate_ *= 2;
                 qDebug() << "Increasing max rate for " << fname
@@ -392,21 +394,48 @@ void CKitProperty::handleActivated(int)
     emit changed(cache_);
 }
 
+CKitProperty::OpenResult CKitProperty::tryOpen(QFile &f)
+{
+    if (f.isOpen())
+        return Opened;
+
+    if (!f.exists())
+        return DoesntExists;
+
+    f.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
+    if (!f.isOpen())
+        return CantOpen;
+
+    return Opened;
+}
+
 bool CKitProperty::tryOpen()
 {
-    if (file_.isOpen())
+    OpenResult res0, res1;
+    res0 = tryOpen(*file_);
+    if (res0 == Opened)
         return true;
 
-    if (!file_.exists()) {
-        qWarning() << "No property file " << file_.fileName();
-        return false;
+    file_ = (file_ == &user_file_) ? &sys_file_ : &user_file_;
+
+    res1 = tryOpen(*file_);
+    if (res1 == Opened)
+        return true;
+
+    auto info0 = res0 == DoesntExists ? "no file" : "can't open";
+    auto info1 = res1 == DoesntExists ? "no file" : "can't open";
+    QString f0, f1;
+    if (file_ == &user_file_) {
+        f0 = "Sys";
+        f1 = "User";
+    } else {
+        f0 = "User";
+        f1 = "Sys";
     }
-    file_.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
-    if (!file_.isOpen()) {
-        qWarning() << "Can't open " << file_.fileName();
-        return false;
-    }
-    return true;
+    qWarning() << "Error accessing property " << key_ << ": "
+               << f0 << ": " << info0 << ", " << f1 << ": " << info1;
+    file_ = &user_file_;
+    return false;
 }
 
 QVariant CKitProperty::subscribe()
@@ -422,7 +451,7 @@ QVariant CKitProperty::subscribe()
 
     if (update())
         emit changed(cache_);
-    notifier_.reset(new QSocketNotifier(file_.handle(), QSocketNotifier::Read));
+    notifier_.reset(new QSocketNotifier(file_->handle(), QSocketNotifier::Read));
     connect(notifier_.data(), SIGNAL(activated(int))
             , this, SLOT(handleActivated(int)));
     notifier_->setEnabled(true);
@@ -435,14 +464,14 @@ void CKitProperty::unsubscribe()
         return;
 
     is_subscribed_ = false;
-    if (!file_.isOpen())
+    if (!file_->isOpen())
         return;
 
     if (notifier_) {
         notifier_->setEnabled(false);
         notifier_.reset();
     }
-    file_.close();
+    file_->close();
 }
 
 }

@@ -46,6 +46,7 @@ protected:
 
 bool splitPropertyName(const QString &, QStringList &);
 QString getPath(const QString &);
+QString getSystemPath(const QString &);
 
 QVariant valueDecode(QString const&);
 QString valueEncode(QVariant const&);

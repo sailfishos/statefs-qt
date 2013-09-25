@@ -79,6 +79,25 @@ QString getPath(const QString &name)
     return parts.join(QDir::separator());
 }
 
+/**
+ * get path to the statefs property file for the statefs system
+ * instance mounted to the default statefs root
+ *
+ * @param name dot- or slash-separated full property name
+ *
+ * @return full path to the property file
+ */
+QString getSystemPath(const QString &name)
+{
+    QStringList parts;
+    if (!splitPropertyName(name, parts))
+        return "";
+
+    parts.push_front("/run/state/namespaces"); // TODO hardcoded source!
+
+    return parts.join(QDir::separator());
+}
+
 static QRegExp re(QString const &cs)
 {
 	auto in_spaces = [](QString const& s) {

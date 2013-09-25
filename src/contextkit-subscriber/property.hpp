@@ -48,12 +48,20 @@ private slots:
 
 private:
     bool tryOpen();
+    enum OpenResult {
+        Opened,
+        DoesntExists,
+        CantOpen
+    };
+    OpenResult tryOpen(QFile &);
     void resubscribe();
 
     bool update();
 
     QString key_;
-    QFile file_;
+    QFile user_file_;
+    QFile sys_file_;
+    QFile *file_;
     mutable QScopedPointer<QSocketNotifier> notifier_;
     QByteArray buffer_;
     mutable int reopen_interval_;
