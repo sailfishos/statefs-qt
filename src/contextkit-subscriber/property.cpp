@@ -541,13 +541,15 @@ void ContextPropertyPrivate::waitForSubscription() const
     if (state_ == Subscribed)
         return;
 
-    // wait until unsubscribed
     try {
-        auto status = wait_for(on_subscribed_, std::chrono::milliseconds(5000));
+        auto status = wait_for(on_subscribed_, std::chrono::milliseconds(2000));
         if (status == std::future_status::ready) {
             update(on_subscribed_.get());
         }
         state_ = Subscribed;
+    } catch (std::future_error const &e) {
+        // skip, nothing can be done, it seems Qt has not delivered
+        // QEvent to the target
     } catch (std::exception const &e) {
         qWarning() << "waitForSubscription: Caught '" << e.what() << "'\n";
     }
