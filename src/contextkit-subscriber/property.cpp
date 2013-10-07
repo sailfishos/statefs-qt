@@ -11,45 +11,6 @@
 #include <memory>
 #include <poll.h>
 
-
-// TODO move to cor
-// gcc 4.6 future::wait_for() returns bool instead of future_status
-// adding forward-compatibility
-
-template <class ResT> struct ChooseRightFuture {};
-
-template <>
-struct ChooseRightFuture<bool> {
-
-    template <class T, class Rep, class Period>
-    std::future_status wait_for
-    (std::future<T> const &future
-     , const std::chrono::duration<Rep,Period>& timeout) {
-        bool status = future.wait_for(timeout);
-        return status ? std::future_status::ready : std::future_status::timeout;
-    }
-};
-
-template <>
-struct ChooseRightFuture<std::future_status> {
-
-    template <class T, class Rep, class Period>
-    std::future_status wait_for
-    (std::future<T> const &future
-     , const std::chrono::duration<Rep,Period>& timeout) {
-        return future.wait_for(timeout);
-    }
-};
-
-template<class T, class Rep, class Period>
-std::future_status wait_for
-(std::future<T> const &future, const std::chrono::duration<Rep,Period>& timeout)
-{
-    auto impl = ChooseRightFuture<decltype(future.wait_for(timeout))>();
-    return impl.template wait_for<>(future, timeout);
-}
-
-
 namespace ckit
 {
 
@@ -430,8 +391,8 @@ bool CKitProperty::tryOpen()
     if (res1 == Opened)
         return true;
 
-    auto info0 = res0 == DoesntExists ? "no file" : "can't open";
-    auto info1 = res1 == DoesntExists ? "no file" : "can't open";
+    auto info0 = (res0 == DoesntExists ? "no file" : "can't open");
+    auto info1 = (res1 == DoesntExists ? "no file" : "can't open");
     QString f0, f1;
     if (file_ == &user_file_) {
         f0 = "Sys";
@@ -579,7 +540,7 @@ void ContextPropertyPrivate::waitForSubscription() const
         return;
 
     try {
-        auto status = wait_for(on_subscribed_, std::chrono::milliseconds(2000));
+        auto status = cor::wait_for(on_subscribed_, std::chrono::milliseconds(2000));
         if (status == std::future_status::ready) {
             update(on_subscribed_.get());
         }
