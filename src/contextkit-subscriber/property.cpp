@@ -167,31 +167,31 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     auto tgt = req->tgt_;
     auto key = req->key_;
 
-    auto t_it = targets_.find(key);
-    if (t_it == targets_.end())
+    auto ptargets = targets_.find(key);
+    if (ptargets == targets_.end())
         return;
 
-    auto tgt_set = t_it.value();
-    auto ptgt = tgt_set.find(tgt);
-    if (ptgt == tgt_set.end())
+    auto key_targets = ptargets.value();
+    auto ptarget = key_targets.find(tgt);
+    if (ptarget == key_targets.end())
         return;
 
-    auto h_it = properties_.find(key);
-    if (h_it == properties_.end())
+    auto phandlers = properties_.find(key);
+    if (phandlers == properties_.end())
         return;
 
-    auto handler = h_it.value();
+    auto handler = phandlers.value();
 
     // TODO when qt4 support will be removed
     // disconnect(handler, &CKitProperty::changed
     //           , tgt, &ContextPropertyPrivate::changed);
     disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
-    tgt_set.erase(ptgt);
-    if (!tgt_set.isEmpty())
+    key_targets.erase(ptarget);
+    if (!key_targets.isEmpty())
         return;
 
-    targets_.erase(t_it);
-    properties_.erase(h_it);
+    targets_.erase(ptargets);
+    properties_.erase(phandlers);
     handler->deleteLater();
     req->done_.set_value();
 }
