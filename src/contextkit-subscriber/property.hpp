@@ -175,10 +175,10 @@ public:
 
 signals:
 
-    void valueChanged();
+    void valueChanged() const;
 
 public slots:
-    void changed(QVariant);
+    void changed(QVariant) const;
 private:
 
     enum State {
