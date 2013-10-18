@@ -11,45 +11,6 @@
 #include <memory>
 #include <poll.h>
 
-
-// TODO move to cor
-// gcc 4.6 future::wait_for() returns bool instead of future_status
-// adding forward-compatibility
-
-template <class ResT> struct ChooseRightFuture {};
-
-template <>
-struct ChooseRightFuture<bool> {
-
-    template <class T, class Rep, class Period>
-    std::future_status wait_for
-    (std::future<T> const &future
-     , const std::chrono::duration<Rep,Period>& timeout) {
-        bool status = future.wait_for(timeout);
-        return status ? std::future_status::ready : std::future_status::timeout;
-    }
-};
-
-template <>
-struct ChooseRightFuture<std::future_status> {
-
-    template <class T, class Rep, class Period>
-    std::future_status wait_for
-    (std::future<T> const &future
-     , const std::chrono::duration<Rep,Period>& timeout) {
-        return future.wait_for(timeout);
-    }
-};
-
-template<class T, class Rep, class Period>
-std::future_status wait_for
-(std::future<T> const &future, const std::chrono::duration<Rep,Period>& timeout)
-{
-    auto impl = ChooseRightFuture<decltype(future.wait_for(timeout))>();
-    return impl.template wait_for<>(future, timeout);
-}
-
-
 namespace ckit
 {
 
@@ -206,31 +167,31 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     auto tgt = req->tgt_;
     auto key = req->key_;
 
-    auto t_it = targets_.find(key);
-    if (t_it == targets_.end())
+    auto ptargets = targets_.find(key);
+    if (ptargets == targets_.end())
         return;
 
-    auto tgt_set = t_it.value();
-    auto ptgt = tgt_set.find(tgt);
-    if (ptgt == tgt_set.end())
+    auto key_targets = ptargets.value();
+    auto ptarget = key_targets.find(tgt);
+    if (ptarget == key_targets.end())
         return;
 
-    auto h_it = properties_.find(key);
-    if (h_it == properties_.end())
+    auto phandlers = properties_.find(key);
+    if (phandlers == properties_.end())
         return;
 
-    auto handler = h_it.value();
+    auto handler = phandlers.value();
 
     // TODO when qt4 support will be removed
     // disconnect(handler, &CKitProperty::changed
     //           , tgt, &ContextPropertyPrivate::changed);
     disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
-    tgt_set.erase(ptgt);
-    if (!tgt_set.isEmpty())
+    key_targets.erase(ptarget);
+    if (!key_targets.isEmpty())
         return;
 
-    targets_.erase(t_it);
-    properties_.erase(h_it);
+    targets_.erase(ptargets);
+    properties_.erase(phandlers);
     handler->deleteLater();
     req->done_.set_value();
 }
@@ -430,8 +391,8 @@ bool CKitProperty::tryOpen()
     if (res1 == Opened)
         return true;
 
-    auto info0 = res0 == DoesntExists ? "no file" : "can't open";
-    auto info1 = res1 == DoesntExists ? "no file" : "can't open";
+    auto info0 = (res0 == DoesntExists ? "no file" : "can't open");
+    auto info1 = (res1 == DoesntExists ? "no file" : "can't open");
     QString f0, f1;
     if (file_ == &user_file_) {
         f0 = "Sys";
@@ -523,17 +484,17 @@ void ContextPropertyPrivate::changed(QVariant v)
     if (state_ == Subscribing)
         state_ = Subscribed;
 
-    if (update(v))
-        emit valueChanged();
+    update(v);
+    emit valueChanged();
 }
 
 bool ContextPropertyPrivate::update(QVariant const &v) const
 {
-    if (v.isNull() || (is_cached_ && v == cache_))
+    if ((is_cached_ && v == cache_) || v.isNull())
         return false;
 
-    is_cached_ = true;
     cache_ = v;
+    is_cached_ = true;
     return true;
 }
 
@@ -579,7 +540,7 @@ void ContextPropertyPrivate::waitForSubscription() const
         return;
 
     try {
-        auto status = wait_for(on_subscribed_, std::chrono::milliseconds(2000));
+        auto status = cor::wait_for(on_subscribed_, std::chrono::milliseconds(2000));
         if (status == std::future_status::ready) {
             update(on_subscribed_.get());
         }

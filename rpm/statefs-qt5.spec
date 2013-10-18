@@ -7,8 +7,9 @@ Group: System Environment/Tools
 URL: http://github.com/nemomobile/statefs-qt
 Source0: %{name}-%{version}.tar.bz2
 BuildRequires: cmake >= 2.8
-#BuildRequires: pkgconfig(statefspp) >= 0.3.8
-BuildRequires: pkgconfig(cor) >= 0.1.5
+BuildRequires: statefs >= 0.3.18
+BuildRequires: pkgconfig(statefs-cpp) >= 0.3.18
+BuildRequires: pkgconfig(cor) >= 0.1.11
 BuildRequires: pkgconfig(Qt5Core)
 #BuildRequires: contextkit-devel
 
@@ -54,7 +55,7 @@ Contextkit property interface using statefs instead of contextkit
 %setup -q
 
 %build
-%cmake -DSTATEFS_QT_VERSION=%{version}
+%cmake -DSTATEFS_QT_VERSION=%{version} %{?_with_multiarch:-DENABLE_MULTIARCH=ON}
 make %{?jobs:-j%jobs}
 make doc
 
