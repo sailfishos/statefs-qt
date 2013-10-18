@@ -160,6 +160,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
 
     auto v = handler->subscribe();
     req->value_.set_value(v);
+    tgt->changed(v);
 }
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
@@ -479,7 +480,7 @@ ckit::Actor<ckit::PropertyMonitor> * ContextPropertyPrivate::actor()
     return ckit::PropertyMonitor::instance();
 }
 
-void ContextPropertyPrivate::changed(QVariant v)
+void ContextPropertyPrivate::changed(QVariant v) const
 {
     if (state_ == Subscribing)
         state_ = Subscribed;
