@@ -142,6 +142,12 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     auto tgt = req->tgt_;
     auto key = req->key_;
     CKitProperty *handler;
+
+    if (!tgt) {
+        qWarning() << "Logic issue: subscription target is null";
+        return;
+    }
+
     auto it = targets_.find(key);
     if (it == targets_.end()) {
         it = targets_.insert(key, QSet<ContextPropertyPrivate const*>());

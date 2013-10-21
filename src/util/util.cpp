@@ -69,8 +69,10 @@ bool splitPropertyName(const QString &name, QStringList &parts)
 QString getPath(const QString &name)
 {
     QStringList parts;
-    if (!splitPropertyName(name, parts))
+    if (!splitPropertyName(name, parts)) {
+        qWarning() << "can't split '" << name << "'";
         return "";
+    }
 
     parts.push_front("namespaces");
     parts.push_front("state");
