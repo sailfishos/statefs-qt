@@ -90,6 +90,7 @@ endif(ENABLE_QT4)
 add_subdirectory(src/util)
 add_subdirectory(src/contextkit-subscriber)
 add_subdirectory(tests)
+add_subdirectory(tools/monitor)
 
 MESSAGE(STATUS "QT4=${ENABLE_QT4}")
 MESSAGE(STATUS "STATEFS_QT_VERSION=${STATEFS_QT_VERSION}")
