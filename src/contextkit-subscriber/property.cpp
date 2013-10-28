@@ -33,25 +33,24 @@ private:
 };
 
 QMutex PropertyMonitor::actorGuard_;
-ckit::Actor<ckit::PropertyMonitor> *PropertyMonitor::propertyMonitor_ = nullptr;
-bool PropertyMonitor::isActorCreated_ = false;
+PropertyMonitor::monitor_ptr PropertyMonitor::instance_;
 
-ckit::Actor<ckit::PropertyMonitor> * PropertyMonitor::instance()
+PropertyMonitor::monitor_ptr PropertyMonitor::instance()
 {
-    if (isActorCreated_)
-        return propertyMonitor_;
+    monitor_ptr p = instance_;
+    if (p)
+        return p;
 
     QMutexLocker lock(&actorGuard_);
 
-    if (isActorCreated_)
-        return propertyMonitor_;
+    if (instance_)
+        return instance_;
 
-    propertyMonitor_ = new ckit::Actor<ckit::PropertyMonitor>([]() {
+    instance_.reset(new monitor_type([]() {
             return new ckit::PropertyMonitor();
-        });
+            }));
 
-    isActorCreated_ = true;
-    return propertyMonitor_;
+    return instance_;
 }
 
 
@@ -481,7 +480,7 @@ QVariant ContextPropertyPrivate::value() const
     return value(QVariant());
 }
 
-ckit::Actor<ckit::PropertyMonitor> * ContextPropertyPrivate::actor()
+ckit::PropertyMonitor::monitor_ptr ContextPropertyPrivate::actor()
 {
     return ckit::PropertyMonitor::instance();
 }
