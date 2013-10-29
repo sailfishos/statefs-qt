@@ -369,8 +369,8 @@ void CKitProperty::handleActivated(int)
             now_ = now;
         }
     }
-    update();
-    emit changed(cache_);
+    if (update())
+        emit changed(cache_);
 }
 
 CKitProperty::OpenResult CKitProperty::tryOpen(QFile &f)
