@@ -418,11 +418,11 @@ QVariant CKitProperty::subscribe()
     if (is_subscribed_)
         return cache_;
 
-    is_subscribed_ = true;
     if (!tryOpen()) {
         reopen_timer_->start(reopen_interval_);
         return QVariant();
     }
+    is_subscribed_ = true;
 
     if (update())
         emit changed(cache_);
