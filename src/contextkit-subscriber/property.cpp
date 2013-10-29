@@ -234,10 +234,10 @@ CKitProperty::~CKitProperty()
 void CKitProperty::trySubscribe()
 {
     static const int max_interval_ = 1000 * 60 * 3;
-    static const int fast_interval_ = 1000 * 2;
+    static const int fast_interval_ = 1000 * 3;
     static const int slow_interval_ = 1000 * 30;
     if (tryOpen()) {
-        reopen_interval_ = 100;
+        reopen_interval_ = 500;
         subscribe();
         return;
     }
