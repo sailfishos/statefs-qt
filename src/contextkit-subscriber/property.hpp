@@ -56,6 +56,7 @@ private:
     };
     OpenResult tryOpen(QFile &);
     void resubscribe();
+    QVariant subscribe_();
 
     bool update();
 

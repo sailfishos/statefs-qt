@@ -243,7 +243,7 @@ void CKitProperty::trySubscribe()
     static const int slow_interval_ = 1000 * 30;
     if (tryOpen()) {
         reopen_interval_ = 500;
-        subscribe();
+        subscribe_();
         return;
     }
 
@@ -265,7 +265,7 @@ void CKitProperty::resubscribe()
     unsubscribe();
 
     if (was_subscribed)
-        subscribe();
+        subscribe_();
 }
 
 bool CKitProperty::update()
@@ -420,21 +420,26 @@ bool CKitProperty::tryOpen()
 
 QVariant CKitProperty::subscribe()
 {
-    if (is_subscribed_)
-        return cache_;
+    return (!is_subscribed_ ? subscribe_() : cache_);
+}
 
+QVariant CKitProperty::subscribe_()
+{
     if (!tryOpen()) {
         reopen_timer_->start(reopen_interval_);
         return QVariant();
     }
     is_subscribed_ = true;
 
-    if (update())
-        emit changed(cache_);
-    notifier_.reset(new QSocketNotifier(file_->handle(), QSocketNotifier::Read));
+    notifier_.reset(new QSocketNotifier
+                    (file_->handle(), QSocketNotifier::Read));
     connect(notifier_.data(), SIGNAL(activated(int))
             , this, SLOT(handleActivated(int)));
     notifier_->setEnabled(true);
+
+    if (update())
+        emit changed(cache_);
+
     return cache_;
 }
 
@@ -444,14 +449,13 @@ void CKitProperty::unsubscribe()
         return;
 
     is_subscribed_ = false;
-    if (!file_->isOpen())
-        return;
 
     if (notifier_) {
         notifier_->setEnabled(false);
         notifier_.reset();
     }
-    file_->close();
+    if (file_->isOpen())
+        file_->close();
 }
 
 }
