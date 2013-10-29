@@ -177,9 +177,7 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     if (ptargets == targets_.end())
         return;
 
-    auto key_targets = ptargets.value();
-    auto ptarget = key_targets.find(tgt);
-    if (ptarget == key_targets.end())
+    if (!ptargets->remove(tgt))
         return;
 
     auto phandlers = properties_.find(key);
@@ -192,13 +190,12 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     // disconnect(handler, &CKitProperty::changed
     //           , tgt, &ContextPropertyPrivate::changed);
     disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(onChanged(QVariant)));
-    key_targets.erase(ptarget);
-    if (!key_targets.isEmpty())
-        return;
-
-    targets_.erase(ptargets);
-    properties_.erase(phandlers);
-    handler->deleteLater();
+    if (ptargets->isEmpty()) {
+        // last subscriber is gone
+        targets_.erase(ptargets);
+        properties_.erase(phandlers);
+        handler->deleteLater();
+    }
     req->done_.set_value();
 }
 
