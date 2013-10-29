@@ -161,11 +161,11 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     }
     // TODO when qt4 support will be removed
     //connect(handler, &CKitProperty::changed, tgt, &ContextPropertyPrivate::changed);
-    connect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
+    connect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(onChanged(QVariant)));
 
     auto v = handler->subscribe();
     req->value_.set_value(v);
-    tgt->changed(v);
+    tgt->onChanged(v);
 }
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
@@ -191,7 +191,7 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     // TODO when qt4 support will be removed
     // disconnect(handler, &CKitProperty::changed
     //           , tgt, &ContextPropertyPrivate::changed);
-    disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
+    disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(onChanged(QVariant)));
     key_targets.erase(ptarget);
     if (!key_targets.isEmpty())
         return;
@@ -485,7 +485,7 @@ ckit::PropertyMonitor::monitor_ptr ContextPropertyPrivate::actor()
     return ckit::PropertyMonitor::instance();
 }
 
-void ContextPropertyPrivate::changed(QVariant v) const
+void ContextPropertyPrivate::onChanged(QVariant v) const
 {
     if (state_ == Subscribing)
         state_ = Subscribed;

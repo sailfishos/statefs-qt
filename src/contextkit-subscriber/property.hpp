@@ -179,7 +179,7 @@ signals:
     void valueChanged() const;
 
 public slots:
-    void changed(QVariant) const;
+    void onChanged(QVariant) const;
 private:
 
     enum State {
