@@ -128,6 +128,7 @@ bool PropertyMonitor::event(QEvent *e)
             break;
         }
         default:
+            qWarning() << "Unknown user event";
             return QObject::event(e);
         }
     } catch (std::exception const &ex) {
@@ -147,6 +148,10 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
         qWarning() << "Logic issue: subscription target is null";
         return;
     }
+    if (key.isEmpty()) {
+        qWarning() << "Empty contextkit key";
+        return;
+    }
 
     auto it = targets_.find(key);
     if (it == targets_.end()) {
@@ -160,9 +165,9 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
         it->insert(tgt);
         handler = properties_[key];
     }
-    // TODO when qt4 support will be removed
-    //connect(handler, &CKitProperty::changed, tgt, &ContextPropertyPrivate::changed);
-    connect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(onChanged(QVariant)));
+
+    connect(handler, SIGNAL(changed(QVariant))
+            , tgt, SLOT(onChanged(QVariant)));
 
     auto v = handler->subscribe();
     req->value_.set_value(v);
