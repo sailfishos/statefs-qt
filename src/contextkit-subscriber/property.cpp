@@ -2,6 +2,7 @@
 #include <statefs/qt/util.hpp>
 
 #include <cor/mt.hpp>
+#include <cor/util.hpp>
 
 #include <contextproperty.h>
 #include <QDebug>
@@ -170,6 +171,9 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 {
+    auto on_exit = cor::on_scope_exit([req]() {
+            req->done_.set_value();
+        });
     auto tgt = req->tgt_;
     auto key = req->key_;
 
@@ -196,7 +200,6 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
         properties_.erase(phandlers);
         handler->deleteLater();
     }
-    req->done_.set_value();
 }
 
 CKitProperty* PropertyMonitor::add(const QString &key)
