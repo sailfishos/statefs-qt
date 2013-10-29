@@ -313,9 +313,6 @@ bool CKitProperty::update()
             }
         }
         is_updated = true;
-
-        if (notifier_)
-            notifier_->setEnabled(true);
     } else {
         qWarning() << "Error accessing? " << rc << "..." << file_->fileName();
         resubscribe();
@@ -326,9 +323,6 @@ bool CKitProperty::update()
 
 void CKitProperty::handleActivated(int)
 {
-    if (notifier_)
-        notifier_->setEnabled(false);
-
     // there is an issue with Qt QSocketNotifier: it handles poll
     // error events in the same way as read events, so if property is
     // not pollable it will be reread with 0 timeout. Workaround is
@@ -353,6 +347,8 @@ void CKitProperty::handleActivated(int)
             if (check_for_poll_err(file_->handle())) {
                 qWarning() << "Unpollable file " << file_->fileName()
                            << " is polled, disabling handling";
+                // TODO more sophisticated handling required
+                notifier_.reset();
                 return;
             }
             auto fname = file_->fileName();
@@ -434,7 +430,6 @@ QVariant CKitProperty::subscribe_()
                     (file_->handle(), QSocketNotifier::Read));
     connect(notifier_.data(), SIGNAL(activated(int))
             , this, SLOT(handleActivated(int)));
-    notifier_->setEnabled(true);
 
     if (update())
         emit changed(cache_);
@@ -449,10 +444,8 @@ void CKitProperty::unsubscribe()
 
     is_subscribed_ = false;
 
-    if (notifier_) {
-        notifier_->setEnabled(false);
-        notifier_.reset();
-    }
+    notifier_.reset();
+
     if (file_->isOpen())
         file_->close();
 }
