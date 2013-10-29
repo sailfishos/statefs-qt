@@ -499,18 +499,22 @@ void ContextPropertyPrivate::onChanged(QVariant v) const
     if (state_ == Subscribing)
         state_ = Subscribed;
 
-    update(v);
-    emit valueChanged();
+    if (update(v))
+        emit valueChanged();
 }
 
 bool ContextPropertyPrivate::update(QVariant const &v) const
 {
-    if ((is_cached_ && v == cache_) || v.isNull())
-        return false;
-
-    cache_ = v;
-    is_cached_ = true;
-    return true;
+    bool res = true;
+    if (!is_cached_) {
+        cache_ = v;
+        is_cached_ = true;
+    } else if (v != cache_) {
+        cache_ = v;
+    } else {
+        res = false;
+    }
+    return res;
 }
 
 
