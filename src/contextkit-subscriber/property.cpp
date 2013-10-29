@@ -261,11 +261,10 @@ void CKitProperty::trySubscribe()
 
 void CKitProperty::resubscribe()
 {
-    bool was_subscribed = is_subscribed_;
-    unsubscribe();
-
-    if (was_subscribed)
+    if (is_subscribed_) {
+        unsubscribe();
         subscribe_();
+    }
 }
 
 bool CKitProperty::update()
