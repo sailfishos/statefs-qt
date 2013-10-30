@@ -10,6 +10,7 @@
 #include <QVariant>
 #include <QFile>
 #include <QScopedPointer>
+#include <QSharedPointer>
 #include <QByteArray>
 #include <QWaitCondition>
 #include <QThread>
@@ -55,6 +56,7 @@ private:
     };
     OpenResult tryOpen(QFile &);
     void resubscribe();
+    QVariant subscribe_();
 
     bool update();
 
@@ -132,7 +134,9 @@ class PropertyMonitor : public QObject
 public:
     virtual bool event(QEvent *);
 
-    static ckit::Actor<ckit::PropertyMonitor> * instance();
+    typedef ckit::Actor<PropertyMonitor> monitor_type;
+    typedef QSharedPointer<monitor_type> monitor_ptr;
+    static monitor_ptr instance();
 private:
     void subscribe(SubscribeRequest*);
     void unsubscribe(UnsubscribeRequest*);
@@ -142,9 +146,7 @@ private:
     QMap<QString, CKitProperty*> properties_;
 
     static QMutex actorGuard_;
-    static ckit::Actor<PropertyMonitor> *propertyMonitor_;
-    static bool isActorCreated_;
-
+    static monitor_ptr instance_;
 };
 
 }
@@ -178,7 +180,7 @@ signals:
     void valueChanged() const;
 
 public slots:
-    void changed(QVariant) const;
+    void onChanged(QVariant) const;
 private:
 
     enum State {
@@ -189,7 +191,7 @@ private:
 
     bool update(QVariant const&) const;
 
-    static ckit::Actor<ckit::PropertyMonitor> *actor();
+    static ckit::PropertyMonitor::monitor_ptr actor();
     QString key_;
     mutable State state_;
     mutable bool is_cached_;

@@ -2,6 +2,7 @@
 #include <statefs/qt/util.hpp>
 
 #include <cor/mt.hpp>
+#include <cor/util.hpp>
 
 #include <contextproperty.h>
 #include <QDebug>
@@ -33,25 +34,24 @@ private:
 };
 
 QMutex PropertyMonitor::actorGuard_;
-ckit::Actor<ckit::PropertyMonitor> *PropertyMonitor::propertyMonitor_ = nullptr;
-bool PropertyMonitor::isActorCreated_ = false;
+PropertyMonitor::monitor_ptr PropertyMonitor::instance_;
 
-ckit::Actor<ckit::PropertyMonitor> * PropertyMonitor::instance()
+PropertyMonitor::monitor_ptr PropertyMonitor::instance()
 {
-    if (isActorCreated_)
-        return propertyMonitor_;
+    monitor_ptr p = instance_;
+    if (p)
+        return p;
 
     QMutexLocker lock(&actorGuard_);
 
-    if (isActorCreated_)
-        return propertyMonitor_;
+    if (instance_)
+        return instance_;
 
-    propertyMonitor_ = new ckit::Actor<ckit::PropertyMonitor>([]() {
+    instance_.reset(new monitor_type([]() {
             return new ckit::PropertyMonitor();
-        });
+            }));
 
-    isActorCreated_ = true;
-    return propertyMonitor_;
+    return instance_;
 }
 
 
@@ -128,6 +128,7 @@ bool PropertyMonitor::event(QEvent *e)
             break;
         }
         default:
+            qWarning() << "Unknown user event";
             return QObject::event(e);
         }
     } catch (std::exception const &ex) {
@@ -142,6 +143,16 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     auto tgt = req->tgt_;
     auto key = req->key_;
     CKitProperty *handler;
+
+    if (!tgt) {
+        qWarning() << "Logic issue: subscription target is null";
+        return;
+    }
+    if (key.isEmpty()) {
+        qWarning() << "Empty contextkit key";
+        return;
+    }
+
     auto it = targets_.find(key);
     if (it == targets_.end()) {
         it = targets_.insert(key, QSet<ContextPropertyPrivate const*>());
@@ -154,17 +165,20 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
         it->insert(tgt);
         handler = properties_[key];
     }
-    // TODO when qt4 support will be removed
-    //connect(handler, &CKitProperty::changed, tgt, &ContextPropertyPrivate::changed);
-    connect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
+
+    connect(handler, SIGNAL(changed(QVariant))
+            , tgt, SLOT(onChanged(QVariant)));
 
     auto v = handler->subscribe();
     req->value_.set_value(v);
-    tgt->changed(v);
+    tgt->onChanged(v);
 }
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 {
+    auto on_exit = cor::on_scope_exit([req]() {
+            req->done_.set_value();
+        });
     auto tgt = req->tgt_;
     auto key = req->key_;
 
@@ -172,9 +186,7 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     if (ptargets == targets_.end())
         return;
 
-    auto key_targets = ptargets.value();
-    auto ptarget = key_targets.find(tgt);
-    if (ptarget == key_targets.end())
+    if (!ptargets->remove(tgt))
         return;
 
     auto phandlers = properties_.find(key);
@@ -186,15 +198,13 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     // TODO when qt4 support will be removed
     // disconnect(handler, &CKitProperty::changed
     //           , tgt, &ContextPropertyPrivate::changed);
-    disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(changed(QVariant)));
-    key_targets.erase(ptarget);
-    if (!key_targets.isEmpty())
-        return;
-
-    targets_.erase(ptargets);
-    properties_.erase(phandlers);
-    handler->deleteLater();
-    req->done_.set_value();
+    disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(onChanged(QVariant)));
+    if (ptargets->isEmpty()) {
+        // last subscriber is gone
+        targets_.erase(ptargets);
+        properties_.erase(phandlers);
+        handler->deleteLater();
+    }
 }
 
 CKitProperty* PropertyMonitor::add(const QString &key)
@@ -229,11 +239,11 @@ CKitProperty::~CKitProperty()
 void CKitProperty::trySubscribe()
 {
     static const int max_interval_ = 1000 * 60 * 3;
-    static const int fast_interval_ = 1000 * 2;
+    static const int fast_interval_ = 1000 * 3;
     static const int slow_interval_ = 1000 * 30;
     if (tryOpen()) {
-        reopen_interval_ = 100;
-        subscribe();
+        reopen_interval_ = 500;
+        subscribe_();
         return;
     }
 
@@ -251,11 +261,10 @@ void CKitProperty::trySubscribe()
 
 void CKitProperty::resubscribe()
 {
-    bool was_subscribed = is_subscribed_;
-    unsubscribe();
-
-    if (was_subscribed)
-        subscribe();
+    if (is_subscribed_) {
+        unsubscribe();
+        subscribe_();
+    }
 }
 
 bool CKitProperty::update()
@@ -304,9 +313,6 @@ bool CKitProperty::update()
             }
         }
         is_updated = true;
-
-        if (notifier_)
-            notifier_->setEnabled(true);
     } else {
         qWarning() << "Error accessing? " << rc << "..." << file_->fileName();
         resubscribe();
@@ -317,9 +323,6 @@ bool CKitProperty::update()
 
 void CKitProperty::handleActivated(int)
 {
-    if (notifier_)
-        notifier_->setEnabled(false);
-
     // there is an issue with Qt QSocketNotifier: it handles poll
     // error events in the same way as read events, so if property is
     // not pollable it will be reread with 0 timeout. Workaround is
@@ -344,6 +347,8 @@ void CKitProperty::handleActivated(int)
             if (check_for_poll_err(file_->handle())) {
                 qWarning() << "Unpollable file " << file_->fileName()
                            << " is polled, disabling handling";
+                // TODO more sophisticated handling required
+                notifier_.reset();
                 return;
             }
             auto fname = file_->fileName();
@@ -360,8 +365,8 @@ void CKitProperty::handleActivated(int)
             now_ = now;
         }
     }
-    update();
-    emit changed(cache_);
+    if (update())
+        emit changed(cache_);
 }
 
 CKitProperty::OpenResult CKitProperty::tryOpen(QFile &f)
@@ -410,21 +415,25 @@ bool CKitProperty::tryOpen()
 
 QVariant CKitProperty::subscribe()
 {
-    if (is_subscribed_)
-        return cache_;
+    return (!is_subscribed_ ? subscribe_() : cache_);
+}
 
-    is_subscribed_ = true;
+QVariant CKitProperty::subscribe_()
+{
     if (!tryOpen()) {
         reopen_timer_->start(reopen_interval_);
         return QVariant();
     }
+    is_subscribed_ = true;
+
+    notifier_.reset(new QSocketNotifier
+                    (file_->handle(), QSocketNotifier::Read));
+    connect(notifier_.data(), SIGNAL(activated(int))
+            , this, SLOT(handleActivated(int)));
 
     if (update())
         emit changed(cache_);
-    notifier_.reset(new QSocketNotifier(file_->handle(), QSocketNotifier::Read));
-    connect(notifier_.data(), SIGNAL(activated(int))
-            , this, SLOT(handleActivated(int)));
-    notifier_->setEnabled(true);
+
     return cache_;
 }
 
@@ -434,14 +443,11 @@ void CKitProperty::unsubscribe()
         return;
 
     is_subscribed_ = false;
-    if (!file_->isOpen())
-        return;
 
-    if (notifier_) {
-        notifier_->setEnabled(false);
-        notifier_.reset();
-    }
-    file_->close();
+    notifier_.reset();
+
+    if (file_->isOpen())
+        file_->close();
 }
 
 }
@@ -475,28 +481,32 @@ QVariant ContextPropertyPrivate::value() const
     return value(QVariant());
 }
 
-ckit::Actor<ckit::PropertyMonitor> * ContextPropertyPrivate::actor()
+ckit::PropertyMonitor::monitor_ptr ContextPropertyPrivate::actor()
 {
     return ckit::PropertyMonitor::instance();
 }
 
-void ContextPropertyPrivate::changed(QVariant v) const
+void ContextPropertyPrivate::onChanged(QVariant v) const
 {
     if (state_ == Subscribing)
         state_ = Subscribed;
 
-    update(v);
-    emit valueChanged();
+    if (update(v))
+        emit valueChanged();
 }
 
 bool ContextPropertyPrivate::update(QVariant const &v) const
 {
-    if ((is_cached_ && v == cache_) || v.isNull())
-        return false;
-
-    cache_ = v;
-    is_cached_ = true;
-    return true;
+    bool res = true;
+    if (!is_cached_) {
+        cache_ = v;
+        is_cached_ = true;
+    } else if (v != cache_) {
+        cache_ = v;
+    } else {
+        res = false;
+    }
+    return res;
 }
 
 

@@ -85,6 +85,7 @@ rm -rf %{buildroot}
 %files %{subscriber}
 %defattr(-,root,root,-)
 %{_libdir}/libcontextkit-statefs-qt5.so
+%{_bindir}/contextkit-monitor
 
 %files %{subscriber_devel}
 %defattr(-,root,root,-)
