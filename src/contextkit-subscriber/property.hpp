@@ -70,9 +70,6 @@ private:
     mutable QTimer *reopen_timer_;
     bool is_subscribed_;
     QVariant cache_;
-    unsigned rate_;
-    time_t now_;
-    unsigned max_rate_;
 };
 
 class Actor_ : public QThread
