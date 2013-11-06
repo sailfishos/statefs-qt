@@ -223,9 +223,6 @@ CKitProperty::CKitProperty(const QString &key, QObject *parent)
     , reopen_interval_(100)
     , reopen_timer_(new QTimer(this))
     , is_subscribed_(false)
-    , rate_(0)
-    , now_(::time(nullptr))
-    , max_rate_(20)
 {
     reopen_timer_->setSingleShot(true);
     connect(reopen_timer_, SIGNAL(timeout()), this, SLOT(trySubscribe()));
@@ -323,48 +320,6 @@ bool CKitProperty::update()
 
 void CKitProperty::handleActivated(int)
 {
-    // there is an issue with Qt QSocketNotifier: it handles poll
-    // error events in the same way as read events, so if property is
-    // not pollable it will be reread with 0 timeout. Workaround is
-    // check is rate goes above some reasonable limit and disable
-    // polling if it is too high
-    auto check_for_poll_err = [](int h) {
-        pollfd fd;
-        fd.fd = h;
-        fd.events = 0;
-        fd.revents = 0;
-        auto rc = ::poll(&fd, 1, 30);
-        if (!rc)
-            return false;
-        if (rc > 0)
-            return (fd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;
-        else
-            return true;
-    };
-    if (++rate_ > max_rate_) {
-        auto now = ::time(nullptr);
-        if (now == now_) {
-            if (check_for_poll_err(file_->handle())) {
-                qWarning() << "Unpollable file " << file_->fileName()
-                           << " is polled, disabling handling";
-                // TODO more sophisticated handling required
-                notifier_.reset();
-                return;
-            }
-            auto fname = file_->fileName();
-            if (rate_ < 200) {
-                max_rate_ *= 2;
-                qDebug() << "Increasing max rate for " << fname
-                         << " to " << max_rate_;
-            } else {
-                qDebug() << "Rate for " << fname << "is very high, reseting";
-                rate_ = 0;
-            }
-        } else {
-            rate_ = 0;
-            now_ = now;
-        }
-    }
     if (update())
         emit changed(cache_);
 }
