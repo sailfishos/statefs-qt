@@ -171,7 +171,9 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
 
     auto v = handler->subscribe();
     req->value_.set_value(v);
-    tgt->onChanged(v);
+    QMetaObject::invokeMethod
+        (const_cast<ContextPropertyPrivate*>(tgt), "onChanged"
+         , Qt::QueuedConnection, Q_ARG(QVariant, v));
 }
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
