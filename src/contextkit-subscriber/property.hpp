@@ -30,12 +30,12 @@ class ContextPropertyPrivate;
 namespace ckit {
 
 
-class CKitProperty : public QObject
+class Property : public QObject
 {
     Q_OBJECT;
 public:
-    CKitProperty(QString const &key, QObject *parent);
-    virtual ~CKitProperty();
+    Property(QString const &key, QObject *parent);
+    virtual ~Property();
 
     QVariant subscribe();
     void unsubscribe();
@@ -137,10 +137,10 @@ public:
 private:
     void subscribe(SubscribeRequest*);
     void unsubscribe(UnsubscribeRequest*);
-    CKitProperty *add(const QString &);
+    Property *add(const QString &);
 
     QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
-    QMap<QString, CKitProperty*> properties_;
+    QMap<QString, Property*> properties_;
 
     static QMutex actorGuard_;
     static monitor_ptr instance_;
@@ -173,7 +173,6 @@ public:
     static void setTypeCheck(bool typeCheck);
 
 signals:
-
     void valueChanged() const;
 
 public slots:
