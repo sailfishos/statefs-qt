@@ -1,6 +1,8 @@
 #ifndef _STATEFS_CKIT_PROPERTY_HPP_
 #define _STATEFS_CKIT_PROPERTY_HPP_
 
+#include "actor.hpp"
+
 #include <cor/mt.hpp>
 #include <functional>
 #include <future>
@@ -12,10 +14,7 @@
 #include <QScopedPointer>
 #include <QSharedPointer>
 #include <QByteArray>
-#include <QWaitCondition>
-#include <QThread>
 #include <QMutex>
-#include <QCoreApplication>
 #include <QSet>
 #include <QMap>
 #include <QSocketNotifier>
@@ -30,12 +29,12 @@ class ContextPropertyPrivate;
 namespace ckit {
 
 
-class CKitProperty : public QObject
+class Property : public QObject
 {
     Q_OBJECT;
 public:
-    CKitProperty(QString const &key, QObject *parent);
-    virtual ~CKitProperty();
+    Property(QString const &key, QObject *parent);
+    virtual ~Property();
 
     QVariant subscribe();
     void unsubscribe();
@@ -72,56 +71,6 @@ private:
     QVariant cache_;
 };
 
-class Actor_ : public QThread
-{
-    Q_OBJECT;
-protected:
-    Actor_(QObject *parent) : QThread(parent) {}
-    virtual ~Actor_() {}
-};
-
-
-template <typename T>
-class Actor : public Actor_
-{
-public:
-    Actor(std::function<T*()> ctor, QObject *parent = nullptr)
-        : Actor_(parent)
-        , ctor_(ctor)
-    {
-        mutex_.lock();
-        start();
-        cond_.wait(&mutex_);
-        mutex_.unlock();
-    }
-
-    void run()
-    {
-        obj_.reset(ctor_());
-        mutex_.lock();
-        cond_.wakeAll();
-        mutex_.unlock();
-        exec();
-        obj_.reset(nullptr);
-    }
-
-    inline void postEvent(QEvent *e)
-    {
-        QCoreApplication::postEvent(obj_.data(), e);
-    }
-
-    inline bool sendEvent(QEvent const *e)
-    {
-        return QCoreApplication::sendEvent(obj_.data(), e);
-    }
-
-private:
-    QWaitCondition cond_;
-    QMutex mutex_;
-    std::function<T*()> ctor_;
-    QScopedPointer<T> obj_;
-};
-
 class SubscribeRequest;
 class UnsubscribeRequest;
 
@@ -131,19 +80,47 @@ class PropertyMonitor : public QObject
 public:
     virtual bool event(QEvent *);
 
-    typedef ckit::Actor<PropertyMonitor> monitor_type;
+    typedef cor::qt::Actor<PropertyMonitor> monitor_type;
     typedef QSharedPointer<monitor_type> monitor_ptr;
     static monitor_ptr instance();
 private:
     void subscribe(SubscribeRequest*);
     void unsubscribe(UnsubscribeRequest*);
-    CKitProperty *add(const QString &);
+    Property *add(const QString &);
 
     QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
-    QMap<QString, CKitProperty*> properties_;
+    QMap<QString, Property*> properties_;
 
     static QMutex actorGuard_;
     static monitor_ptr instance_;
+};
+
+
+class ExitMonitor : public QObject
+{
+    Q_OBJECT;
+public:
+    ExitMonitor(PropertyMonitor::monitor_ptr p)
+        : QObject(QCoreApplication::instance())
+        , monitor_(p)
+    {
+        auto app = QCoreApplication::instance();
+        if (app) {
+            connect(app, SIGNAL(aboutToQuit())
+                    , this, SLOT(beforeAppQuit()));
+        }
+    }
+private slots:
+    void beforeAppQuit()
+    {
+        if (monitor_->isRunning()) {
+            monitor_->quit();
+            monitor_->wait();
+        }
+    }
+
+private:
+    PropertyMonitor::monitor_ptr monitor_;
 };
 
 }
@@ -173,7 +150,6 @@ public:
     static void setTypeCheck(bool typeCheck);
 
 signals:
-
     void valueChanged() const;
 
 public slots:
@@ -181,9 +157,10 @@ public slots:
 private:
 
     enum State {
+        Initial,
+        Unsubscribing,
         Subscribing,
-        Subscribed,
-        Unsubscribed
+        Subscribed
     };
 
     bool update(QVariant const&) const;

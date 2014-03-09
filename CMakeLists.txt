@@ -20,6 +20,7 @@ ENDIF()
 SET(DST_LIB lib${LIB_SUFFIX})
 
 find_package(PkgConfig REQUIRED)
+pkg_check_modules(COR cor REQUIRED)
 
 set(CMAKE_CXX_FLAGS
   "${CMAKE_CXX_FLAGS} -Wall -O2 -g -feliminate-unused-debug-types -std=c++0x -fPIC"
@@ -35,12 +36,13 @@ set(CMAKE_CXX_FLAGS
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include
-#  ${STATEFS_INCLUDES}
+  #  ${STATEFS_INCLUDES}
+  ${COR_INCLUDES}
 )
 
 link_directories(
-#  ${STATEFS_LIBS}
-
+  #  ${STATEFS_LIBS}
+  ${COR_LIBRARY_DIRS}
 )
 
 add_custom_target(doc
