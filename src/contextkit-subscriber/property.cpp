@@ -47,9 +47,12 @@ PropertyMonitor::monitor_ptr PropertyMonitor::instance()
     if (instance_)
         return instance_;
 
-    instance_.reset(new monitor_type([]() {
-            return new ckit::PropertyMonitor();
+    p.reset(new monitor_type([]() {
+                return new ckit::PropertyMonitor();
             }));
+    new ExitMonitor(p);
+    p->startSync();
+    instance_ = p;
 
     return instance_;
 }
@@ -143,11 +146,23 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     auto tgt = req->tgt_;
     auto key = req->key_;
     Property *handler;
+    QVariant retval;
 
     if (!tgt) {
         qWarning() << "Logic issue: subscription target is null";
         return;
     }
+    auto notify_on_exit = cor::on_scope_exit([req, &retval, tgt]() {
+            try {
+                req->value_.set_value(retval);
+            } catch (std::future_error const &e) {
+                qWarning() << "Future: no state, " << e.what();
+            }
+            QMetaObject::invokeMethod
+            (const_cast<ContextPropertyPrivate*>(tgt), "onChanged"
+             , Qt::QueuedConnection, Q_ARG(QVariant, retval));
+        });
+
     if (key.isEmpty()) {
         qWarning() << "Empty contextkit key";
         return;
@@ -169,18 +184,19 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     connect(handler, SIGNAL(changed(QVariant))
             , tgt, SLOT(onChanged(QVariant)));
 
-    auto v = handler->subscribe();
-    req->value_.set_value(v);
-    QMetaObject::invokeMethod
-        (const_cast<ContextPropertyPrivate*>(tgt), "onChanged"
-         , Qt::QueuedConnection, Q_ARG(QVariant, v));
+    retval = handler->subscribe();
 }
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 {
     auto on_exit = cor::on_scope_exit([req]() {
-            req->done_.set_value();
+            try {
+                req->done_.set_value();
+            } catch (std::future_error const &e) {
+                qWarning() << "Future: no state, " << e.what();
+            }
         });
+
     auto tgt = req->tgt_;
     auto key = req->key_;
 
@@ -413,7 +429,7 @@ void Property::unsubscribe()
 ContextPropertyPrivate::ContextPropertyPrivate(const QString &key, QObject *parent)
     : QObject(parent)
     , key_(key)
-    , state_(Unsubscribed)
+    , state_(Initial)
     , is_cached_(false)
 {
 }
@@ -474,8 +490,13 @@ const ContextPropertyInfo* ContextPropertyPrivate::info() const
 
 void ContextPropertyPrivate::subscribe() const
 {
-    if (state_ != Unsubscribed)
+    if (state_ == Subscribing || state_ == Subscribed)
         return;
+
+    // unsubscription is asynchronous, so wait for it to be finished
+    // if resubcribing
+    if (state_ == Unsubscribing)
+        on_unsubscribed_.wait_for(std::chrono::milliseconds(20000));
 
     state_ = Subscribing;
     std::promise<QVariant> res;
@@ -486,7 +507,7 @@ void ContextPropertyPrivate::subscribe() const
 
 void ContextPropertyPrivate::unsubscribe() const
 {
-    if (state_ == Unsubscribed)
+    if (state_ == Unsubscribing)
         return;
 
     try {
@@ -494,8 +515,7 @@ void ContextPropertyPrivate::unsubscribe() const
         on_unsubscribed_ = res.get_future();
         auto ev = new ckit::UnsubscribeRequest(this, key_, std::move(res));
         actor()->postEvent(ev);
-        on_unsubscribed_.wait_for(std::chrono::milliseconds(20000));
-        state_ = Unsubscribed;
+        state_ = Unsubscribing;
     } catch (std::exception const &e) {
         qWarning() << "unsubscribe: Caught '" << e.what() << "'\n";
     }
@@ -504,7 +524,7 @@ void ContextPropertyPrivate::unsubscribe() const
 
 void ContextPropertyPrivate::waitForSubscription() const
 {
-    if (state_ == Subscribed)
+    if (state_ != Subscribing)
         return;
 
     try {
@@ -523,6 +543,9 @@ void ContextPropertyPrivate::waitForSubscription() const
 
 void ContextPropertyPrivate::waitForSubscription(bool block) const
 {
+    if (state_ != Subscribing)
+        return;
+
     if (block)
         return waitForSubscription();
 

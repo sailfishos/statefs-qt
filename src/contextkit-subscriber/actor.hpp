@@ -7,6 +7,7 @@
 #include <QCoreApplication>
 #include <functional>
 #include <QScopedPointer>
+#include <QDebug>
 
 namespace cor { namespace qt {
 
@@ -15,7 +16,10 @@ class Actor_ : public QThread
     Q_OBJECT;
 protected:
     Actor_(QObject *parent) : QThread(parent) {}
-    virtual ~Actor_() {}
+    virtual ~Actor_() {
+        if (!wait(10000))
+            qWarning() << "Timeout: no quit request was sent!";
+    }
 };
 
 
@@ -27,10 +31,30 @@ public:
         : Actor_(parent)
         , ctor_(ctor)
     {
-        mutex_.lock();
-        start();
-        cond_.wait(&mutex_);
-        mutex_.unlock();
+    }
+
+    virtual ~Actor() {
+        if (obj_ && this != QThread::currentThread())
+            qWarning() << "Managed object is not deleted in a right thread"
+                       << "Current:" << QThread::currentThread()
+                       << ", Need:" << this;
+        auto app = QCoreApplication::instance();
+        if (app) {
+            if (isRunning())
+                quit();
+            if (QThread::currentThread() != this)
+                wait();
+        }
+    }
+
+    void startSync()
+    {
+        if (!isRunning()) {
+            mutex_.lock();
+            start();
+            cond_.wait(&mutex_);
+            mutex_.unlock();
+        }
     }
 
     void run()
@@ -45,12 +69,13 @@ public:
 
     inline void postEvent(QEvent *e)
     {
-        QCoreApplication::postEvent(obj_.data(), e);
+        if (obj_)
+            QCoreApplication::postEvent(obj_.data(), e);
     }
 
     inline bool sendEvent(QEvent const *e)
     {
-        return QCoreApplication::sendEvent(obj_.data(), e);
+        return obj_ ? QCoreApplication::sendEvent(obj_.data(), e) : false;
     }
 
 private:

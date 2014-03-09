@@ -95,6 +95,34 @@ private:
     static monitor_ptr instance_;
 };
 
+
+class ExitMonitor : public QObject
+{
+    Q_OBJECT;
+public:
+    ExitMonitor(PropertyMonitor::monitor_ptr p)
+        : QObject(QCoreApplication::instance())
+        , monitor_(p)
+    {
+        auto app = QCoreApplication::instance();
+        if (app) {
+            connect(app, SIGNAL(aboutToQuit())
+                    , this, SLOT(beforeAppQuit()));
+        }
+    }
+private slots:
+    void beforeAppQuit()
+    {
+        if (monitor_->isRunning()) {
+            monitor_->quit();
+            monitor_->wait();
+        }
+    }
+
+private:
+    PropertyMonitor::monitor_ptr monitor_;
+};
+
 }
 
 class ContextPropertyPrivate : public QObject
@@ -129,9 +157,10 @@ public slots:
 private:
 
     enum State {
+        Initial,
+        Unsubscribing,
         Subscribing,
-        Subscribed,
-        Unsubscribed
+        Subscribed
     };
 
     bool update(QVariant const&) const;
