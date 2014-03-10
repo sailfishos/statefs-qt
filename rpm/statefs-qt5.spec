@@ -40,6 +40,7 @@ BuildRequires: graphviz
 Summary: Statefs contextkit subscriber adapter for Qt5
 Group: System Environment/Libraries
 Requires: statefs >= 0.3.8
+Requires: statefs-qt5 = %{version}-%{release}
 %description %{subscriber}
 %{summary}
 
