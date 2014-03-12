@@ -213,10 +213,6 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 
     auto handler = phandlers.value();
 
-    // TODO when qt4 support will be removed
-    // disconnect(handler, &Property::changed
-    //           , tgt, &ContextPropertyPrivate::changed);
-    disconnect(handler, SIGNAL(changed(QVariant)), tgt, SLOT(onChanged(QVariant)));
     if (ptargets->isEmpty()) {
         // last subscriber is gone
         targets_.erase(ptargets);
