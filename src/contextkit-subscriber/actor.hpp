@@ -16,10 +16,7 @@ class Actor_ : public QThread
     Q_OBJECT;
 protected:
     Actor_(QObject *parent) : QThread(parent) {}
-    virtual ~Actor_() {
-        if (!wait(10000))
-            qWarning() << "Timeout: no quit request was sent!";
-    }
+    virtual ~Actor_() {}
 };
 
 
@@ -43,7 +40,8 @@ public:
             if (isRunning())
                 quit();
             if (QThread::currentThread() != this)
-                wait();
+                if (!wait(10000))
+                    qWarning() << "Timeout: no quit from thread!";
         }
     }
 
