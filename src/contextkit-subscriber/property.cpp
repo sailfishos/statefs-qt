@@ -278,6 +278,19 @@ void Property::resubscribe()
     }
 }
 
+// 1MB?
+static const size_t max_statefs_file_size = 1024 * 1024;
+
+static int read(QIODevice &src, QByteArray &dst
+                , size_t size, size_t offset = 0)
+{
+    if ((size_t)dst.size() < offset + size) {
+        qWarning() << "Logical error: wrong dst QByteArray size";
+        return 0;
+    }
+    return src.read(dst.data() + offset, size);
+}
+
 bool Property::update()
 {
     static const size_t cap = 31;
@@ -297,18 +310,29 @@ bool Property::update()
 
     file_->seek(0);
     auto size = file_->size();
-    if (buffer_.size() < size)
-        buffer_.resize(size + cap + 1);
+    // statefs file size can change, so need to read more and check:
+    // if amount of data read > size, continue to read. Also readAll()
+    // is not suitable for the same reason
+    auto to_read = size + cap;
+    if (buffer_.size() < to_read + 1)
+        buffer_.resize(to_read + 1 /* for \0 */);
 
-    int rc = file_->read(buffer_.data(), size + cap);
+    int rc = read(*file_, buffer_, to_read);
+    // read all data
     if (rc > size) {
-        int read = 0;
+        int bytes_read = 0;
         while (rc > 0) {
-            read += rc;
-            buffer_.resize(buffer_.size() + read + 1);
-            rc = file_->read(buffer_.data() + read, read);
+            bytes_read += rc;
+            if ((size_t)bytes_read > max_statefs_file_size) {
+                qWarning() << "File size for " << file_->fileName()
+                           << "reached max " << max_statefs_file_size;
+                break;
+            }
+            // maybe there is more data to read
+            buffer_.resize(buffer_.size() + bytes_read + 1);
+            rc = read(*file_, buffer_, bytes_read, bytes_read);
         }
-        rc = read;
+        rc = bytes_read;
     }
     touchFile.close();
     if (rc >= 0) {
