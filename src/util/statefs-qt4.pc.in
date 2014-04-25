@@ -4,6 +4,6 @@ includedir=${prefix}/include/qt4
 
 Name: statefs-qt4
 Description: StateFS Qt4 development
-Version: @STATEFS_QT_VERSION@
+Version: @VERSION@
 Libs: -lstatefs-qt4
 Cflags: -I${includedir}

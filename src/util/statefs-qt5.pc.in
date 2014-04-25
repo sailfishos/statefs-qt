@@ -5,5 +5,5 @@ includedir=${prefix}/include/qt5
 Name: statefs-qt5
 Description: StateFS Qt5 development
 Version: @STATEFS_QT_VERSION@
-Libs: -lstatefs-qt5
+Libs: -L${libdir} -lstatefs-qt5
 Cflags: -I${includedir}
