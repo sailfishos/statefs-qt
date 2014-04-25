@@ -92,5 +92,5 @@ rm -rf %{buildroot}
 %defattr(-,root,root,-)
 %{_includedir}/contextproperty.h
 %{_libdir}/pkgconfig/contextkit-statefs.pc
-%{_libdir}/pkgconfig/contextkit-subscriber.pc
+%{_libdir}/pkgconfig/contextsubscriber-1.0.pc
 
