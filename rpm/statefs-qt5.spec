@@ -56,7 +56,7 @@ Contextkit property interface using statefs instead of contextkit
 %setup -q
 
 %build
-%cmake -DSTATEFS_QT_VERSION=%{version} %{?_with_multiarch:-DENABLE_MULTIARCH=ON}
+%cmake -DVERSION=%{version} %{?_with_multiarch:-DENABLE_MULTIARCH=ON}
 make %{?jobs:-j%jobs}
 make doc
 
@@ -92,4 +92,5 @@ rm -rf %{buildroot}
 %defattr(-,root,root,-)
 %{_includedir}/contextproperty.h
 %{_libdir}/pkgconfig/contextkit-statefs.pc
+%{_libdir}/pkgconfig/contextkit-subscriber.pc
 

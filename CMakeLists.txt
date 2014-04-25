@@ -1,9 +1,9 @@
 project(statefs-qt)
 cmake_minimum_required(VERSION 2.8)
 
-IF(NOT DEFINED STATEFS_QT_VERSION)
-  message(fatal_error "define STATEFS_QT_VERSION")
-ENDIF(NOT DEFINED STATEFS_QT_VERSION)
+IF(NOT DEFINED VERSION)
+  message(fatal_error "define VERSION")
+ENDIF(NOT DEFINED VERSION)
 
 option(ENABLE_QT4 "Build Qt4 version of libraries" OFF)
 
@@ -95,4 +95,4 @@ add_subdirectory(tests)
 add_subdirectory(tools/monitor)
 
 MESSAGE(STATUS "QT4=${ENABLE_QT4}")
-MESSAGE(STATUS "STATEFS_QT_VERSION=${STATEFS_QT_VERSION}")
+MESSAGE(STATUS "VERSION=${VERSION}")
