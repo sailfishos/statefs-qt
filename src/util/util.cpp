@@ -119,6 +119,7 @@ static const QString datetime_re(QString("%1T%2%3")
 
 static const std::initializer_list<std::pair<QRegExp, QVariant::Type> > re_types
 = {{re("[+-][0-9]+"), QVariant::Int}
+   , {re("[0-9]{11,}"), QVariant::String}
    , {re("[0-9]+"), QVariant::UInt}
    , {re("[+-]?([0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)"), QVariant::Double}
    , {re(date_re), QVariant::Date}
