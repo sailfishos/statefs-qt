@@ -12,6 +12,40 @@
 #include <memory>
 #include <poll.h>
 
+namespace {
+
+// to wrap code to be executed from the code which does not support
+// exception handling
+template <typename F, typename OnFutureT>
+void execute_nothrow_process_future_error
+(F fn, char const *msg, OnFutureT on_future_error)
+{
+    try{
+        fn();
+    } catch (std::future_error const &e) {
+        on_future_error(e);
+    } catch (std::exception const &e) {
+        qWarning() << "Ignoring exception: " << e.what() << ". " << msg;
+    // } catch (...) {
+    //     // Those exceptions should not be catched, let's abort. Maybe
+    //     // this is something bad
+    //     qWarning() << "Unknown exception, ignoring. " << msg;
+    }
+}
+
+template <typename F>
+void execute_nothrow(F &&fn, char const *msg)
+{
+    execute_nothrow_process_future_error
+        (std::forward<F>(fn), msg, [msg](std::future_error const &e) {
+            // skip, nothing can be done, maybe Qt has not delivered
+            // QEvent to the target, maybe something else is happened.
+            qDebug() << "Future error: " << e.code().value()
+                     << ":" << e.what() << ". " << msg;
+        });
+}
+}
+
 namespace ckit
 {
 
