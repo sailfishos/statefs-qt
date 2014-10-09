@@ -71,6 +71,7 @@ set(STATEFS_QT_MOC_HEADERS
 
 add_subdirectory(src/util)
 add_subdirectory(src/contextkit-subscriber)
+add_subdirectory(src/qml)
 add_subdirectory(tests)
 add_subdirectory(tools/monitor)
 
