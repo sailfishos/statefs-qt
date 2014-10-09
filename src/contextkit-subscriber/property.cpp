@@ -78,7 +78,8 @@ public:
     enum Type {
         Subscribe = QEvent::User,
         Unsubscribe,
-        Subscribed
+        Subscribed,
+        Write
     };
 
     virtual ~Event();
@@ -154,6 +155,25 @@ public:
     std::promise<void> done_;
 };
 
+class WriteRequest : public Event
+{
+public:
+    WriteRequest(ContextPropertyPrivate const *tgt
+                 , QString const &key
+                 , QVariant const &value)
+        : Event(Event::Write)
+        , tgt_(tgt)
+        , key_(key)
+        , value_(value)
+    {}
+    WriteRequest(WriteRequest const &) = delete;
+    virtual ~WriteRequest() {}
+
+    ContextPropertyPrivate const *tgt_;
+    QString key_;
+    QVariant value_;
+};
+
 bool PropertyMonitor::event(QEvent *e)
 {
     if (e->type() < QEvent::User)
@@ -179,6 +199,14 @@ bool PropertyMonitor::event(QEvent *e)
                 debug::warning("PropertyMonitor: !UnsubscribeRequest");
             break;
         }
+        case Event::Write: {
+            auto p = dynamic_cast<WriteRequest*>(e);
+            if (p)
+                write(p);
+            else
+                debug::warning("Bad WriteRequest");
+            break;
+        }
         default:
             debug::warning("Unknown user event");
             res = QObject::event(e);
@@ -186,6 +214,31 @@ bool PropertyMonitor::event(QEvent *e)
     };
     execute_nothrow(fn, __PRETTY_FUNCTION__);
     return res;
+}
+
+void PropertyMonitor::write(WriteRequest *req)
+{
+    // implementation is quick and dirty: one redundant try to access
+    // session(user) file
+    auto const &key = req->key_;
+    QFile file{statefs::qt::getPath(key)};
+    if (open(file, QIODevice::WriteOnly) != FileStatus::Opened) {
+        file.setFileName(statefs::qt::getSystemPath(key));
+        if (open(file, QIODevice::WriteOnly) != FileStatus::Opened) {
+            debug::warning("Can't access", key);
+            // TODO Notify about error
+            return;
+        }
+    }
+    auto on_exit = cor::on_scope_exit([&file]() { file.close(); });
+
+    auto s = statefs::qt::valueEncode(req->value_);
+    auto data = s.toUtf8();
+    auto len = file.write(data);
+    if (len != data.size()) {
+        // TODO Notify about error
+        debug::warning("Wrong len ", len, " writing", s, " to ", file.fileName());
+    }
 }
 
 void PropertyMonitor::subscribe(SubscribeRequest *req)
@@ -406,31 +459,17 @@ void Property::handleActivated(int)
         emit changed(cache_);
 }
 
-FileStatus Property::tryOpen(QFile &f)
-{
-    if (f.isOpen())
-        return FileStatus::Opened;
-
-    if (!f.exists())
-        return FileStatus::NoFile;
-
-    f.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
-    if (!f.isOpen())
-        return FileStatus::CantOpen;
-
-    return FileStatus::Opened;
-}
-
 bool Property::tryOpen()
 {
+    static const auto mode = QIODevice::ReadOnly | QIODevice::Unbuffered;
     FileStatus res0, res1;
-    res0 = tryOpen(*file_);
+    res0 = open(*file_, mode);
     if (res0 == FileStatus::Opened)
         return true;
 
     file_ = (file_ == &user_file_) ? &sys_file_ : &user_file_;
 
-    res1 = tryOpen(*file_);
+    res1 = open(*file_, mode);
     if (res1 == FileStatus::Opened)
         return true;
 

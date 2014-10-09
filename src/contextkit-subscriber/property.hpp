@@ -73,6 +73,7 @@ private:
 
 class SubscribeRequest;
 class UnsubscribeRequest;
+class WriteRequest;
 
 class PropertyMonitor : public QObject
 {
@@ -86,7 +87,7 @@ private:
     void subscribe(SubscribeRequest*);
     void unsubscribe(UnsubscribeRequest*);
     Property *add(const QString &);
-
+    void write(WriteRequest *);
     QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
     QMap<QString, Property*> properties_;
 
