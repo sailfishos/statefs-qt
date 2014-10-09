@@ -13,6 +13,7 @@ target_link_libraries(contextkit-monitor
 
 target_link_libraries(contextkit-monitor
   ${Qt5Core_LIBRARIES}
+  ${QTAROUND_LIBRARIES}
 )
 install(TARGETS contextkit-monitor DESTINATION bin)
 
