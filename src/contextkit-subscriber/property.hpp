@@ -29,6 +29,11 @@ class ContextPropertyPrivate;
 
 namespace ckit {
 
+enum class FileStatus {
+    Opened,
+    NoFile,
+    NoAccess
+};
 
 class Property : public QObject
 {
@@ -49,12 +54,6 @@ private slots:
 
 private:
     bool tryOpen();
-    enum OpenResult {
-        Opened,
-        DoesntExists,
-        CantOpen
-    };
-    OpenResult tryOpen(QFile &);
     void resubscribe();
     QVariant subscribe_();
 

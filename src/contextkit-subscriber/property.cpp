@@ -49,6 +49,24 @@ void execute_nothrow(F &&fn, char const *msg)
                            , ":", e.what(), ". ", msg);
         });
 }
+
+using ckit::FileStatus;
+
+FileStatus open(QFile &f, QIODevice::OpenMode mode)
+{
+    if (f.isOpen())
+        return FileStatus::Opened;
+
+    if (!f.exists())
+        return FileStatus::NoFile;
+
+    f.open(mode);
+    if (!f.isOpen())
+        return FileStatus::NoAccess;
+
+    return FileStatus::Opened;
+}
+
 }
 
 namespace ckit
@@ -388,36 +406,36 @@ void Property::handleActivated(int)
         emit changed(cache_);
 }
 
-Property::OpenResult Property::tryOpen(QFile &f)
+FileStatus Property::tryOpen(QFile &f)
 {
     if (f.isOpen())
-        return Opened;
+        return FileStatus::Opened;
 
     if (!f.exists())
-        return DoesntExists;
+        return FileStatus::NoFile;
 
     f.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
     if (!f.isOpen())
-        return CantOpen;
+        return FileStatus::CantOpen;
 
-    return Opened;
+    return FileStatus::Opened;
 }
 
 bool Property::tryOpen()
 {
-    OpenResult res0, res1;
+    FileStatus res0, res1;
     res0 = tryOpen(*file_);
-    if (res0 == Opened)
+    if (res0 == FileStatus::Opened)
         return true;
 
     file_ = (file_ == &user_file_) ? &sys_file_ : &user_file_;
 
     res1 = tryOpen(*file_);
-    if (res1 == Opened)
+    if (res1 == FileStatus::Opened)
         return true;
 
-    auto info0 = (res0 == DoesntExists ? "no file" : "can't open");
-    auto info1 = (res1 == DoesntExists ? "no file" : "can't open");
+    auto info0 = (res0 == FileStatus::NoFile ? "no file" : "can't open");
+    auto info1 = (res1 == FileStatus::NoFile ? "no file" : "can't open");
     QString f0, f1;
     if (file_ == &user_file_) {
         f0 = "Sys";
