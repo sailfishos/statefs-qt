@@ -5,8 +5,6 @@ IF(NOT DEFINED VERSION)
   message(fatal_error "define VERSION")
 ENDIF(NOT DEFINED VERSION)
 
-option(ENABLE_QT4 "Build Qt4 version of libraries" OFF)
-
 option(ENABLE_MULTIARCH "enable support for multi-arch distros (lib64)" OFF)
 IF(ENABLE_MULTIARCH)
   IF(CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -50,31 +48,6 @@ link_directories(
 add_custom_target(doc
   COMMAND doxygen ${CMAKE_CURRENT_SOURCE_DIR}/doc/Doxyfile)
 
-
-if(ENABLE_QT4)
-
-find_package(Qt4 4.7.0 REQUIRED)
-include(${QT_USE_FILE})
-add_definitions(-DQT_SHARED)
-
-include_directories(
-  ${QT_INCLUDE_DIR}
-)
-link_directories(
-  ${QT_LIBRARY_DIRS}
-)
-
-install(DIRECTORY include/statefs DESTINATION include/qt4)
-
-pkg_check_modules(CONTEXTSUBSCRIBER contextsubscriber-1.0 REQUIRED)
-pkg_check_modules(CONTEXTPROVIDER contextprovider-1.0 REQUIRED)
-include_directories(
-  ${CONTEXTSUBSCRIBER_INCLUDE_DIRS}
-  ${CONTEXTPROVIDER_INCLUDE_DIRS}
-)
-
-else(ENABLE_QT4)
-
 find_package(Qt5Core REQUIRED)
 
 include_directories(
@@ -89,12 +62,9 @@ install(DIRECTORY include/statefs DESTINATION include/qt5)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/contextsubscriber)
 install(FILES include/contextsubscriber/contextproperty.h DESTINATION include)
 
-endif(ENABLE_QT4)
-
 add_subdirectory(src/util)
 add_subdirectory(src/contextkit-subscriber)
 add_subdirectory(tests)
 add_subdirectory(tools/monitor)
 
-MESSAGE(STATUS "QT4=${ENABLE_QT4}")
 MESSAGE(STATUS "VERSION=${VERSION}")

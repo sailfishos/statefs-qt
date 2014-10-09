@@ -671,7 +671,3 @@ void ContextProperty::ignoreCommander()
 void ContextProperty::setTypeCheck(bool typeCheck)
 {
 }
-
-#if QT_VERSION < 0x050000
-void ContextProperty::onValueChanged() { }
-#endif
