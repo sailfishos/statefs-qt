@@ -1,5 +1,6 @@
 #include "property.hpp"
 #include <statefs/qt/util.hpp>
+#include <statefs/qt/client.hpp>
 
 #include <cor/mt.hpp>
 #include <cor/util.hpp>
@@ -728,3 +729,58 @@ void ContextProperty::ignoreCommander()
 void ContextProperty::setTypeCheck(bool typeCheck)
 {
 }
+
+namespace statefs { namespace qt {
+
+// TODO now for simplicity it is implemented using
+// ContextPropertyPrivate while maybe it should be done in the
+// contrary way
+class DiscretePropertyImpl : public QObject
+{
+    Q_OBJECT;
+public:
+    DiscretePropertyImpl(QString const &, QObject *parent = nullptr);
+    ~DiscretePropertyImpl() {}
+
+signals:
+    void changed(QVariant const&);
+private slots:
+    void onChanged();
+private:
+    UNIQUE_PTR(ContextPropertyPrivate) impl_;
+};
+
+DiscreteProperty::DiscreteProperty
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(new DiscretePropertyImpl(key, this))
+{
+    connect(impl_, &DiscretePropertyImpl::changed
+            , this, &DiscreteProperty::changed
+            , Qt::DirectConnection);
+}
+
+DiscreteProperty::~DiscreteProperty()
+{
+}
+
+DiscretePropertyImpl::DiscretePropertyImpl
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(make_qobject_unique<ContextPropertyPrivate>(key, this))
+{
+    connect(impl_.get(), &ContextPropertyPrivate::valueChanged
+            , this, &DiscretePropertyImpl::onChanged
+            , Qt::DirectConnection);
+    impl_->subscribe();
+}
+
+void DiscretePropertyImpl::onChanged()
+{
+    emit changed(impl_->value());
+}
+
+
+}}
+
+#include "property.moc"

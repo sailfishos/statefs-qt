@@ -59,8 +59,15 @@ link_directories(
 )
 
 install(DIRECTORY include/statefs DESTINATION include/qt5)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/contextsubscriber)
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/contextsubscriber
+#  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 install(FILES include/contextsubscriber/contextproperty.h DESTINATION include)
+set(STATEFS_QT_MOC_HEADERS
+  ${CMAKE_SOURCE_DIR}/include/contextsubscriber/contextproperty.h
+  ${CMAKE_SOURCE_DIR}/include/statefs/qt/client.hpp
+)
 
 add_subdirectory(src/util)
 add_subdirectory(src/contextkit-subscriber)
