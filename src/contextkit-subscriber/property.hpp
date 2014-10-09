@@ -81,7 +81,7 @@ public:
     virtual bool event(QEvent *);
 
     typedef cor::qt::Actor<PropertyMonitor> monitor_type;
-    typedef QSharedPointer<monitor_type> monitor_ptr;
+    typedef std::shared_ptr<monitor_type> monitor_ptr;
     static monitor_ptr instance();
 private:
     void subscribe(SubscribeRequest*);
@@ -91,7 +91,7 @@ private:
     QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
     QMap<QString, Property*> properties_;
 
-    static QMutex actorGuard_;
+    static std::once_flag once_;
     static monitor_ptr instance_;
 };
 

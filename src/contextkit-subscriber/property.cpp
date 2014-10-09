@@ -4,6 +4,7 @@
 #include <cor/mt.hpp>
 #include <cor/util.hpp>
 
+#include <qtaround/util.hpp>
 #include <contextproperty.h>
 #include <QDebug>
 #include <QTimer>
@@ -67,27 +68,18 @@ private:
 
 };
 
-QMutex PropertyMonitor::actorGuard_;
+std::once_flag PropertyMonitor::once_;
 PropertyMonitor::monitor_ptr PropertyMonitor::instance_;
 
 PropertyMonitor::monitor_ptr PropertyMonitor::instance()
 {
-    monitor_ptr p = instance_;
-    if (p)
-        return p;
-
-    QMutexLocker lock(&actorGuard_);
-
-    if (instance_)
-        return instance_;
-
-    p.reset(new monitor_type([]() {
-                return new ckit::PropertyMonitor();
-            }));
-    new ExitMonitor(p);
-    p->startSync();
-    instance_ = p;
-
+    std::call_once(once_, []() {
+            auto p = make_qobject_shared<monitor_type>
+                ([]() { return new ckit::PropertyMonitor(); });
+            new ExitMonitor(p);
+            p->startSync();
+            instance_ = p;
+        });
     return instance_;
 }
 
