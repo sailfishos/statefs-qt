@@ -8,6 +8,7 @@
  */
 
 #include <QObject>
+#include <QVariant>
 
 namespace statefs { namespace qt {
 
@@ -21,9 +22,25 @@ public:
     ~DiscreteProperty();
 
 signals:
-    void changed(QVariant const&);
+    void changed(QVariant);
 private:
     DiscretePropertyImpl *impl_;
+};
+
+class PropertyWriterImpl;
+
+class PropertyWriter : public QObject
+{
+    Q_OBJECT;
+public:
+    PropertyWriter(QString const &, QObject *parent = nullptr);
+    ~PropertyWriter();
+
+    void set(QVariant);
+signals:
+    void updated(bool);
+private:
+    PropertyWriterImpl *impl_;
 };
 
 }}

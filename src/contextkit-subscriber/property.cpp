@@ -70,6 +70,45 @@ FileStatus open(QFile &f, QIODevice::OpenMode mode)
 
 }
 
+namespace statefs { namespace qt {
+
+// TODO now for simplicity it is implemented using
+// ContextPropertyPrivate while maybe it should be done in the
+// contrary way
+class DiscretePropertyImpl : public QObject
+{
+    Q_OBJECT;
+public:
+    DiscretePropertyImpl(QString const &, QObject *parent = nullptr);
+    ~DiscretePropertyImpl() {}
+
+signals:
+    void changed(QVariant);
+private slots:
+    void onChanged();
+private:
+    UNIQUE_PTR(ContextPropertyPrivate) impl_;
+};
+
+// TODO now for simplicity it is implemented using
+// ContextPropertyPrivate while it should be a separate class
+class PropertyWriterImpl : public QObject
+{
+    Q_OBJECT;
+public:
+    PropertyWriterImpl(QString const &, QObject *parent = nullptr);
+    ~PropertyWriterImpl() { impl_->unsubscribe(); }
+
+    void set(QVariant &&);
+signals:
+    void updated(bool);
+private:
+    UNIQUE_PTR(ContextPropertyPrivate) impl_;
+};
+
+}}
+
+
 namespace ckit
 {
 
@@ -156,23 +195,32 @@ public:
     std::promise<void> done_;
 };
 
-class WriteRequest : public Event
+using statefs::qt::PropertyWriterImpl;
+class WriteRequest : public QObject, public Event
 {
+    Q_OBJECT
 public:
-    WriteRequest(ContextPropertyPrivate const *tgt
+    WriteRequest(PropertyWriterImpl const *tgt
                  , QString const &key
-                 , QVariant const &value)
+                 , QVariant &&value)
         : Event(Event::Write)
         , tgt_(tgt)
         , key_(key)
-        , value_(value)
-    {}
+        , value_(std::move(value))
+    {
+        connect(tgt, &PropertyWriterImpl::updated
+                , this, &WriteRequest::updated
+                , Qt::QueuedConnection);
+    }
+
     WriteRequest(WriteRequest const &) = delete;
     virtual ~WriteRequest() {}
 
-    ContextPropertyPrivate const *tgt_;
+    PropertyWriterImpl const *tgt_;
     QString key_;
     QVariant value_;
+signals:
+    void updated(bool);
 };
 
 bool PropertyMonitor::event(QEvent *e)
@@ -219,6 +267,10 @@ bool PropertyMonitor::event(QEvent *e)
 
 void PropertyMonitor::write(WriteRequest *req)
 {
+    auto isOk = false;
+    auto emit_on_exit = cor::on_scope_exit([req, isOk]() {
+            emit req->updated(false);
+        });
     // implementation is quick and dirty: one redundant try to access
     // session(user) file
     auto const &key = req->key_;
@@ -227,7 +279,6 @@ void PropertyMonitor::write(WriteRequest *req)
         file.setFileName(statefs::qt::getSystemPath(key));
         if (open(file, QIODevice::WriteOnly) != FileStatus::Opened) {
             debug::warning("Can't access", key);
-            // TODO Notify about error
             return;
         }
     }
@@ -236,8 +287,9 @@ void PropertyMonitor::write(WriteRequest *req)
     auto s = statefs::qt::valueEncode(req->value_);
     auto data = s.toUtf8();
     auto len = file.write(data);
-    if (len != data.size()) {
-        // TODO Notify about error
+    if (len == data.size()) {
+        isOk = true;
+    } else {
         debug::warning("Wrong len ", len, " writing", s, " to ", file.fileName());
     }
 }
@@ -732,24 +784,6 @@ void ContextProperty::setTypeCheck(bool typeCheck)
 
 namespace statefs { namespace qt {
 
-// TODO now for simplicity it is implemented using
-// ContextPropertyPrivate while maybe it should be done in the
-// contrary way
-class DiscretePropertyImpl : public QObject
-{
-    Q_OBJECT;
-public:
-    DiscretePropertyImpl(QString const &, QObject *parent = nullptr);
-    ~DiscretePropertyImpl() {}
-
-signals:
-    void changed(QVariant const&);
-private slots:
-    void onChanged();
-private:
-    UNIQUE_PTR(ContextPropertyPrivate) impl_;
-};
-
 DiscreteProperty::DiscreteProperty
 (QString const &key, QObject *parent)
     : QObject(parent)
@@ -762,6 +796,21 @@ DiscreteProperty::DiscreteProperty
 
 DiscreteProperty::~DiscreteProperty()
 {
+}
+
+PropertyWriter::PropertyWriter
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(new PropertyWriterImpl(key, this))
+{
+    connect(impl_, &PropertyWriterImpl::updated
+            , this, &PropertyWriter::updated
+            , Qt::DirectConnection);
+}
+
+void PropertyWriter::set(QVariant v)
+{
+    impl_->set(std::move(v));
 }
 
 DiscretePropertyImpl::DiscretePropertyImpl
@@ -780,6 +829,23 @@ void DiscretePropertyImpl::onChanged()
     emit changed(impl_->value());
 }
 
+PropertyWriter::~PropertyWriter()
+{
+}
+
+PropertyWriterImpl::PropertyWriterImpl
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(make_qobject_unique<ContextPropertyPrivate>(key, this))
+{
+}
+
+void PropertyWriterImpl::set(QVariant &&v)
+{
+    using namespace ckit;
+    auto monitor = PropertyMonitor::instance();
+    monitor->postEvent(new WriteRequest(this, impl_->key(), std::move(v)));
+}
 
 }}
 
