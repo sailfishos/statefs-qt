@@ -43,6 +43,7 @@ include_directories(
 link_directories(
   #  ${STATEFS_LIBS}
   ${COR_LIBRARY_DIRS}
+  ${QTAROUND_LIBRARY_DIRS}
 )
 
 add_custom_target(doc

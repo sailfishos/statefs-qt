@@ -208,8 +208,8 @@ public:
         , key_(key)
         , value_(std::move(value))
     {
-        connect(tgt, &PropertyWriterImpl::updated
-                , this, &WriteRequest::updated
+        connect(this, &WriteRequest::updated
+                , tgt, &PropertyWriterImpl::updated
                 , Qt::QueuedConnection);
     }
 
@@ -267,17 +267,19 @@ bool PropertyMonitor::event(QEvent *e)
 
 void PropertyMonitor::write(WriteRequest *req)
 {
+    static const auto mode
+        = QIODevice::WriteOnly | QIODevice::Unbuffered;
     auto isOk = false;
     auto emit_on_exit = cor::on_scope_exit([req, isOk]() {
-            emit req->updated(false);
+            emit req->updated(isOk);
         });
     // implementation is quick and dirty: one redundant try to access
     // session(user) file
     auto const &key = req->key_;
-    QFile file{statefs::qt::getPath(key)};
-    if (open(file, QIODevice::WriteOnly) != FileStatus::Opened) {
+    QFile file(statefs::qt::getPath(key));
+    if (open(file, mode) != FileStatus::Opened) {
         file.setFileName(statefs::qt::getSystemPath(key));
-        if (open(file, QIODevice::WriteOnly) != FileStatus::Opened) {
+        if (open(file, mode) != FileStatus::Opened) {
             debug::warning("Can't access", key);
             return;
         }
@@ -290,7 +292,8 @@ void PropertyMonitor::write(WriteRequest *req)
     if (len == data.size()) {
         isOk = true;
     } else {
-        debug::warning("Wrong len ", len, " writing", s, " to ", file.fileName());
+        debug::warning("Wrong len", len, "writing", s, "to"
+                       , file.fileName(), "error",  file.error());
     }
 }
 
