@@ -10,6 +10,7 @@ BuildRequires: cmake >= 2.8
 BuildRequires: statefs >= 0.3.18
 BuildRequires: pkgconfig(statefs-cpp) >= 0.3.18
 BuildRequires: pkgconfig(cor) >= 0.1.11
+BuildRequires: pkgconfig(qtaround) >= 0.2.4
 BuildRequires: pkgconfig(Qt5Core)
 #BuildRequires: contextkit-devel
 

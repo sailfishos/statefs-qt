@@ -77,12 +77,12 @@ PropertyMonitor::monitor_ptr PropertyMonitor::instance_;
 
 PropertyMonitor::monitor_ptr PropertyMonitor::instance()
 {
+    namespace mt = qtaround::mt;
     std::call_once(once_, []() {
-            auto p = make_qobject_shared<monitor_type>
-                ([]() { return new ckit::PropertyMonitor(); });
-            new ExitMonitor(p);
-            p->startSync();
-            instance_ = p;
+            using ckit::PropertyMonitor;
+            auto ctor = []() { return make_qobject_unique<PropertyMonitor>(); };
+            instance_ = mt::startActorSync<PropertyMonitor>(ctor);
+            mt::deleteOnApplicationExit(instance_);
         });
     return instance_;
 }
