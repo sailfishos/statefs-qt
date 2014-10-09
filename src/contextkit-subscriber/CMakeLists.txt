@@ -18,6 +18,7 @@ target_link_libraries(contextkit-statefs-qt4
   ${QT_QTCORE_LIBRARY}
   statefs-qt4
   ${COR_LIBRARIES}
+  ${QTAROUND_LIBRARIES}
 )
 
 install(TARGETS contextkit-statefs-qt4 DESTINATION ${DST_LIB})
@@ -41,6 +42,7 @@ target_link_libraries(contextkit-statefs-qt5
   ${Qt5Core_LIBRARIES}
   statefs-qt5
   ${COR_LIBRARIES}
+  ${QTAROUND_LIBRARIES}
 )
 
 install(TARGETS contextkit-statefs-qt5 DESTINATION ${DST_LIB})

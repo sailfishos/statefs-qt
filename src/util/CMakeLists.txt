@@ -16,6 +16,7 @@ add_library(statefs-qt4
 target_link_libraries(statefs-qt4
   ${QT_CORE_LIBRARIES}
   ${COR_LIBRARIES}
+  ${QTAROUND_LIBRARIES}
 #  ${STATEFS_LIBRARIES}
 )
 
@@ -40,6 +41,7 @@ add_library(statefs-qt5
 target_link_libraries(statefs-qt5
   ${Qt5Core_LIBRARIES}
   ${COR_LIBRARIES}
+  ${QTAROUND_LIBRARIES}
 #  ${STATEFS_LIBRARIES}
 )
 

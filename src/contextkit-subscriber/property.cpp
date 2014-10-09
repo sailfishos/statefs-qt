@@ -5,6 +5,8 @@
 #include <cor/util.hpp>
 
 #include <qtaround/util.hpp>
+#include <qtaround/debug.hpp>
+
 #include <contextproperty.h>
 #include <QDebug>
 #include <QTimer>
@@ -12,6 +14,8 @@
 #include <QMutex>
 #include <memory>
 #include <poll.h>
+
+namespace debug = qtaround::debug;
 
 namespace {
 
@@ -26,7 +30,7 @@ void execute_nothrow_process_future_error
     } catch (std::future_error const &e) {
         on_future_error(e);
     } catch (std::exception const &e) {
-        qWarning() << "Ignoring exception: " << e.what() << ". " << msg;
+        debug::warning("Ignoring exception: ", e.what(), ". ", msg);
     // } catch (...) {
     //     // Those exceptions should not be catched, let's abort. Maybe
     //     // this is something bad
@@ -41,8 +45,8 @@ void execute_nothrow(F &&fn, char const *msg)
         (std::forward<F>(fn), msg, [msg](std::future_error const &e) {
             // skip, nothing can be done, maybe Qt has not delivered
             // QEvent to the target, maybe something else is happened.
-            qDebug() << "Future error: " << e.code().value()
-                     << ":" << e.what() << ". " << msg;
+            debug::warning("Future error: ", e.code().value()
+                           , ":", e.what(), ". ", msg);
         });
 }
 }
@@ -146,7 +150,7 @@ bool PropertyMonitor::event(QEvent *e)
             if (p)
                 subscribe(p);
             else
-                qWarning() << "PropertyMonitor: !SubscribeRequest";
+                debug::warning("PropertyMonitor: !SubscribeRequest");
             break;
         }
         case Event::Unsubscribe: {
@@ -154,11 +158,11 @@ bool PropertyMonitor::event(QEvent *e)
             if (p)
                 unsubscribe(p);
             else
-                qWarning() << "PropertyMonitor: !UnsubscribeRequest";
+                debug::warning("PropertyMonitor: !UnsubscribeRequest");
             break;
         }
         default:
-            qWarning() << "Unknown user event";
+            debug::warning("Unknown user event");
             res = QObject::event(e);
         }
     };
@@ -174,7 +178,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     QVariant retval;
 
     if (!tgt) {
-        qWarning() << "Logic issue: subscription target is null";
+        debug::warning("Logic issue: subscription target is null");
         return;
     }
     auto notify_fn = [req, &retval, tgt]() {
@@ -188,7 +192,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
         });
 
     if (key.isEmpty()) {
-        qWarning() << "Empty contextkit key";
+        debug::warning("Empty contextkit key");
         return;
     }
 
@@ -307,7 +311,7 @@ static int read(QIODevice &src, QByteArray &dst
                 , size_t size, size_t offset = 0)
 {
     if ((size_t)dst.size() < offset + size) {
-        qWarning() << "Logical error: wrong dst QByteArray size";
+        debug::warning("Logical error: wrong dst QByteArray size");
         return 0;
     }
     return src.read(dst.data() + offset, size);
@@ -319,7 +323,7 @@ bool Property::update()
     bool is_updated = false;
 
     if (!tryOpen()) {
-        qWarning() << "Can't open " << file_->fileName();
+        debug::warning("Can't open ", file_->fileName());
         cache_ = statefs::qt::valueDefault(cache_);
         resubscribe();
         return is_updated;
@@ -346,8 +350,8 @@ bool Property::update()
         while (rc > 0) {
             bytes_read += rc;
             if ((size_t)bytes_read > max_statefs_file_size) {
-                qWarning() << "File size for " << file_->fileName()
-                           << "reached max " << max_statefs_file_size;
+                debug::warning("File size for " + file_->fileName() +
+                               "reached max ", max_statefs_file_size);
                 break;
             }
             // maybe there is more data to read
@@ -371,7 +375,7 @@ bool Property::update()
         }
         is_updated = true;
     } else {
-        qWarning() << "Error accessing? " << rc << "..." << file_->fileName();
+        debug::warning("Error accessing? ", rc, "..." + file_->fileName());
         resubscribe();
     }
     return is_updated;
@@ -422,8 +426,8 @@ bool Property::tryOpen()
         f0 = "User";
         f1 = "Sys";
     }
-    qWarning() << "Error accessing property " << key_ << ": "
-               << f0 << ": " << info0 << ", " << f1 << ": " << info1;
+    debug::warning("Error accessing property ", key_, ": "
+                   , f0, ": ", info0, ", ", f1, ": ", info1);
     file_ = &user_file_;
     return false;
 }

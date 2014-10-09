@@ -7,6 +7,7 @@
 
 #include "util_p.hpp"
 #include <cor/error.hpp>
+#include <qtaround/debug.hpp>
 
 #include <QRegExp>
 #include <QDebug>
@@ -14,6 +15,8 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+
+namespace debug = qtaround::debug;
 
 namespace statefs {
 /// All StateFS Qt bindings are put into this namespace
@@ -40,7 +43,7 @@ bool splitPropertyName(const QString &name, QStringList &parts)
     re.setPatternSyntax(QRegExp::RegExp);
     parts = name.split(re);
     if (!parts.size()) {
-        qWarning() << "Can't parse property name:" << name;
+        debug::warning("Can't parse property name:", name);
         return false;
     }
 
@@ -70,7 +73,7 @@ QString getPath(const QString &name)
 {
     QStringList parts;
     if (!splitPropertyName(name, parts)) {
-        qWarning() << "can't split '" << name << "'";
+        debug::warning("can't split '", name, "'");
         return "";
     }
 
