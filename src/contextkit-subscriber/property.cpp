@@ -82,6 +82,8 @@ public:
     DiscretePropertyImpl(QString const &, QObject *parent = nullptr);
     ~DiscretePropertyImpl() {}
 
+    void refresh() const;
+
 signals:
     void changed(QVariant);
 private slots:
@@ -97,13 +99,13 @@ class PropertyWriterImpl : public QObject
     Q_OBJECT;
 public:
     PropertyWriterImpl(QString const &, QObject *parent = nullptr);
-    ~PropertyWriterImpl() { impl_->unsubscribe(); }
+    ~PropertyWriterImpl() {}
 
     void set(QVariant &&);
 signals:
     void updated(bool);
 private:
-    UNIQUE_PTR(ContextPropertyPrivate) impl_;
+    QString key_;
 };
 
 }}
@@ -119,7 +121,8 @@ public:
         Subscribe = QEvent::User,
         Unsubscribe,
         Subscribed,
-        Write
+        Write,
+        Refresh
     };
 
     virtual ~Event();
@@ -223,6 +226,22 @@ signals:
     void updated(bool);
 };
 
+class RefreshRequest : public Event
+{
+public:
+    RefreshRequest(ContextPropertyPrivate const *tgt
+                    , QString const &key)
+        : Event(Event::Refresh)
+        , tgt_(tgt)
+        , key_(key)
+    {}
+    RefreshRequest(RefreshRequest const&) = delete;
+    virtual ~RefreshRequest() {}
+
+    ContextPropertyPrivate const *tgt_;
+    QString key_;
+};
+
 bool PropertyMonitor::event(QEvent *e)
 {
     if (e->type() < QEvent::User)
@@ -254,6 +273,14 @@ bool PropertyMonitor::event(QEvent *e)
                 write(p);
             else
                 debug::warning("Bad WriteRequest");
+            break;
+        }
+        case Event::Refresh: {
+            auto p = dynamic_cast<RefreshRequest*>(e);
+            if (p)
+                refresh(p);
+            else
+                debug::warning("PropertyMonitor: !Refresh");
             break;
         }
         default:
@@ -372,6 +399,17 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
         properties_.erase(phandlers);
         handler->deleteLater();
     }
+}
+
+void PropertyMonitor::refresh(RefreshRequest *req)
+{
+    auto key = req->key_;
+    auto phandlers = properties_.find(key);
+    if (phandlers == properties_.end())
+        return;
+
+    auto handler = phandlers.value();
+    handler->update();
 }
 
 Property* PropertyMonitor::add(const QString &key)
@@ -723,6 +761,10 @@ void ContextPropertyPrivate::setTypeCheck(bool typeCheck)
 {
 }
 
+void ContextPropertyPrivate::refresh() const
+{
+    actor()->postEvent(new ckit::RefreshRequest(this, key_));
+}
 
 ContextProperty::ContextProperty(const QString &key, QObject *parent)
     : QObject(parent)
@@ -801,6 +843,11 @@ DiscreteProperty::~DiscreteProperty()
 {
 }
 
+void DiscreteProperty::refresh() const
+{
+    impl_->refresh();
+}
+
 PropertyWriter::PropertyWriter
 (QString const &key, QObject *parent)
     : QObject(parent)
@@ -832,6 +879,11 @@ void DiscretePropertyImpl::onChanged()
     emit changed(impl_->value());
 }
 
+void DiscretePropertyImpl::refresh() const
+{
+    impl_->refresh();
+}
+
 PropertyWriter::~PropertyWriter()
 {
 }
@@ -839,7 +891,7 @@ PropertyWriter::~PropertyWriter()
 PropertyWriterImpl::PropertyWriterImpl
 (QString const &key, QObject *parent)
     : QObject(parent)
-    , impl_(make_qobject_unique<ContextPropertyPrivate>(key, this))
+    , key_(key)
 {
 }
 
@@ -847,7 +899,7 @@ void PropertyWriterImpl::set(QVariant &&v)
 {
     using namespace ckit;
     auto monitor = PropertyMonitor::instance();
-    monitor->postEvent(new WriteRequest(this, impl_->key(), std::move(v)));
+    monitor->postEvent(new WriteRequest(this, key_, std::move(v)));
 }
 
 }}

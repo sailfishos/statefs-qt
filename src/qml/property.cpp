@@ -8,53 +8,69 @@
 #include "property.hpp"
 
 using statefs::qt::DiscreteProperty;
+using statefs::qt::PropertyWriter;
 
-StateMonitor::StateMonitor(QObject* parent)
+StateProperty::StateProperty(QObject* parent)
     : QObject(parent)
     , isActive_(false)
     , impl_(null_qobject_unique<DiscreteProperty>())
+    , writer_(null_qobject_unique<PropertyWriter>())
 {
 }
 
-StateMonitor::~StateMonitor()
+StateProperty::~StateProperty()
 {
 }
 
-QString StateMonitor::getKey() const
+QString StateProperty::getKey() const
 {
     return key_;
 }
 
-void StateMonitor::updateImpl()
+void StateProperty::updateImpl()
 {
     if (isActive_ && !key_.isEmpty()) {
         impl_ = make_qobject_unique<DiscreteProperty>(key_);
         connect(impl_.get(), &DiscreteProperty::changed
-                , this, &StateMonitor::onValueChanged);
+                , this, &StateProperty::onValueChanged);
     } else {
         impl_.reset();
     }
 }
 
-void StateMonitor::setKey(QString key)
+void StateProperty::setKey(QString key)
 {
     if (key_ != key) {
         key_ = std::move(key);
+        writer_.reset();
         updateImpl();
     }
 }
 
-QVariant StateMonitor::getValue() const
+QVariant StateProperty::getValue() const
 {
     return value_;
 }
 
-bool StateMonitor::getActive() const
+void StateProperty::setValue(QVariant v)
+{
+    if (!writer_)
+        writer_ = make_qobject_unique<PropertyWriter>(key_, this);
+    writer_->set(std::move(v));
+}
+
+void StateProperty::refresh() const
+{
+    if (impl_)
+        impl_->refresh();
+}
+
+bool StateProperty::getActive() const
 {
     return isActive_;
 }
 
-void StateMonitor::setActive(bool v)
+void StateProperty::setActive(bool v)
 {
     if (v != isActive_) {
         isActive_ = v;
@@ -63,7 +79,7 @@ void StateMonitor::setActive(bool v)
     }
 }
 
-void StateMonitor::onValueChanged(QVariant v)
+void StateProperty::onValueChanged(QVariant v)
 {
     value_ = std::move(v);
     emit valueChanged();

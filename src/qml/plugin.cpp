@@ -12,5 +12,5 @@
 
 void StatefsPlugin::registerTypes(char const* uri)
 {
-    qmlRegisterType<StateMonitor>(uri, 1, 0, "StateMonitor");
+    qmlRegisterType<StateProperty>(uri, 1, 0, "StateProperty");
 }

@@ -13,7 +13,7 @@
 #include <statefs/qt/client.hpp>
 #include <qtaround/util.hpp>
 
-class StateMonitor : public QObject
+class StateProperty : public QObject
 {
     Q_OBJECT
     Q_CLASSINFO("DefaultProperty", "value")
@@ -24,6 +24,7 @@ class StateMonitor : public QObject
 
     Q_PROPERTY(QVariant value
                READ getValue
+               WRITE setValue
                NOTIFY valueChanged)
 
     Q_PROPERTY(bool active
@@ -32,16 +33,23 @@ class StateMonitor : public QObject
                NOTIFY activeChanged)
 
 public:
-    StateMonitor(QObject* parent = 0);
-    ~StateMonitor();
+    StateProperty(QObject* parent = 0);
+    ~StateProperty();
+
+    StateProperty(StateProperty const &) = delete;
+    StateProperty& operator = (StateProperty const &) = delete;
 
     QString getKey() const;
     void setKey(QString);
 
     QVariant getValue() const;
+    void setValue(QVariant);
 
     bool getActive() const;
     void setActive(bool);
+
+public slots:
+    void refresh() const;
 
 signals:
     void valueChanged();
@@ -57,6 +65,7 @@ private:
     QVariant value_;
     bool isActive_;
     UNIQUE_PTR(statefs::qt::DiscreteProperty) impl_;
+    UNIQUE_PTR(statefs::qt::PropertyWriter) writer_;
 };
 
 #endif // _STATEFS_QML_PROPERTY_HPP_

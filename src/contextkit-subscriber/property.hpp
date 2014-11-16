@@ -45,6 +45,8 @@ public:
     QVariant subscribe();
     void unsubscribe();
 
+    bool update();
+
 signals:
     void changed(QVariant) const;
 
@@ -56,8 +58,6 @@ private:
     bool tryOpen();
     void resubscribe();
     QVariant subscribe_();
-
-    bool update();
 
     QString key_;
     QFile user_file_;
@@ -74,6 +74,7 @@ private:
 class SubscribeRequest;
 class UnsubscribeRequest;
 class WriteRequest;
+class RefreshRequest;
 
 class PropertyMonitor : public QObject
 {
@@ -88,6 +89,8 @@ private:
     void unsubscribe(UnsubscribeRequest*);
     Property *add(const QString &);
     void write(WriteRequest *);
+    void refresh(RefreshRequest*);
+
     QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
     QMap<QString, Property*> properties_;
 
@@ -120,6 +123,8 @@ public:
 
     static void ignoreCommander();
     static void setTypeCheck(bool typeCheck);
+
+    void refresh() const;
 
 signals:
     void valueChanged() const;

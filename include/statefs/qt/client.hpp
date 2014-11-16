@@ -21,8 +21,11 @@ public:
     DiscreteProperty(QString const &, QObject *parent = nullptr);
     ~DiscreteProperty();
 
+    void refresh() const;
+
 signals:
     void changed(QVariant);
+
 private:
     DiscretePropertyImpl *impl_;
 };
