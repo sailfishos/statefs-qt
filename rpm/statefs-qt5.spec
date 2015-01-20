@@ -1,3 +1,5 @@
+%{!?cmake_install: %global cmake_install make install DESTDIR=%{buildroot}}
+
 Summary: Statefs Qt bindings
 Name: statefs-qt5
 Version: x.x.x
@@ -9,7 +11,7 @@ Source0: %{name}-%{version}.tar.bz2
 BuildRequires: cmake >= 2.8
 BuildRequires: statefs >= 0.3.18
 BuildRequires: pkgconfig(statefs-cpp) >= 0.3.18
-BuildRequires: pkgconfig(cor) >= 0.1.11
+BuildRequires: pkgconfig(cor) >= 0.1.17
 BuildRequires: pkgconfig(qtaround) >= 0.2.4
 BuildRequires: pkgconfig(Qt5Core)
 BuildRequires: pkgconfig(Qt5Qml)
@@ -63,7 +65,7 @@ make doc
 
 %install
 rm -rf %{buildroot}
-make install DESTDIR=%{buildroot}
+%cmake_install
 
 install -d -D -p -m755 %{buildroot}%{_datarootdir}/doc/statefs-qt5/html
 cp -R doc/html/ %{buildroot}%{_datarootdir}/doc/statefs-qt5/
