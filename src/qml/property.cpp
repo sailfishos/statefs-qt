@@ -12,10 +12,20 @@ using statefs::qt::PropertyWriter;
 
 StateProperty::StateProperty(QObject* parent)
     : QObject(parent)
-    , isActive_(false)
+    , state_(State::Unknown)
     , impl_(null_qobject_unique<DiscreteProperty>())
     , writer_(null_qobject_unique<PropertyWriter>())
 {
+}
+
+void StateProperty::classBegin()
+{
+}
+
+void StateProperty::componentComplete()
+{
+    if (state_ == State::Unknown)
+        setSubscribed(true);
 }
 
 StateProperty::~StateProperty()
@@ -29,7 +39,7 @@ QString StateProperty::getKey() const
 
 void StateProperty::updateImpl()
 {
-    if (isActive_ && !key_.isEmpty()) {
+    if ((state_ == State::Subscribed) && !key_.isEmpty()) {
         impl_ = make_qobject_unique<DiscreteProperty>(key_);
         connect(impl_.get(), &DiscreteProperty::changed
                 , this, &StateProperty::onValueChanged);
@@ -65,17 +75,18 @@ void StateProperty::refresh() const
         impl_->refresh();
 }
 
-bool StateProperty::getActive() const
+bool StateProperty::getSubscribed() const
 {
-    return isActive_;
+    return (state_ == State::Subscribed);
 }
 
-void StateProperty::setActive(bool v)
+void StateProperty::setSubscribed(bool v)
 {
-    if (v != isActive_) {
-        isActive_ = v;
+    auto newState = v ? State::Subscribed : State::Unsubscribed;
+    if (state_ != newState) {
+        state_ = newState;
         updateImpl();
-        emit activeChanged();
+        emit subscribedChanged();
     }
 }
 

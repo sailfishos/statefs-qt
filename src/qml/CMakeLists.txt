@@ -18,5 +18,5 @@ set_target_properties(statefs-declarative PROPERTIES
   VERSION ${VERSION}
   )
 
-install(TARGETS statefs-declarative DESTINATION lib/qt5/qml/Mer/State)
-install(FILES qmldir DESTINATION lib/qt5/qml/Mer/State)
+install(TARGETS statefs-declarative DESTINATION ${DST_LIB}/qt5/qml/Mer/State)
+install(FILES qmldir DESTINATION ${DST_LIB}/qt5/qml/Mer/State)

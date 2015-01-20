@@ -24,6 +24,7 @@ link_directories(
 
 add_custom_target(doc
   COMMAND doxygen ${CMAKE_CURRENT_SOURCE_DIR}/doc/Doxyfile)
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/doc/html DESTINATION share/doc/statefs-qt5)
 
 find_package(Qt5Core REQUIRED)
 

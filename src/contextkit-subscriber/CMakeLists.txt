@@ -1,7 +1,9 @@
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC TRUE)
+find_package(Qt5Core REQUIRED)
 
-configure_file(contextkit-statefs.pc.in contextkit-statefs.pc @ONLY)
-configure_file(contextsubscriber-1.0.pc.in contextsubscriber-1.0.pc @ONLY)
+configure_install_pkgconfig(contextkit-statefs)
+configure_install_pkgconfig(contextsubscriber-1.0)
 
 qt5_wrap_cpp(LIB_MOC_SRC
   ${STATEFS_QT_MOC_HEADERS}
@@ -21,5 +23,3 @@ target_link_libraries(contextkit-statefs-qt5
 )
 
 install(TARGETS contextkit-statefs-qt5 DESTINATION ${DST_LIB})
-install(FILES contextkit-statefs.pc DESTINATION ${DST_LIB}/pkgconfig)
-install(FILES contextsubscriber-1.0.pc DESTINATION ${DST_LIB}/pkgconfig)

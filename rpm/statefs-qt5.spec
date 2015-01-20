@@ -1,4 +1,6 @@
 %{!?cmake_install: %global cmake_install make install DESTDIR=%{buildroot}}
+%{!?_libqt5_includedir: %global _libqt5_includedir %{_qt5_headerdir}}
+
 
 Summary: Statefs Qt bindings
 Name: statefs-qt5
@@ -66,9 +68,7 @@ make doc
 %install
 rm -rf %{buildroot}
 %cmake_install
-
-install -d -D -p -m755 %{buildroot}%{_datarootdir}/doc/statefs-qt5/html
-cp -R doc/html/ %{buildroot}%{_datarootdir}/doc/statefs-qt5/
+make doc
 
 %clean
 rm -rf %{buildroot}
@@ -79,7 +79,7 @@ rm -rf %{buildroot}
 
 %files devel
 %defattr(-,root,root,-)
-%{_qt5_headerdir}/statefs/qt/*.hpp
+%{_libqt5_includedir}/statefs/qt/*.hpp
 %{_libdir}/pkgconfig/statefs-qt5.pc
 
 %files doc

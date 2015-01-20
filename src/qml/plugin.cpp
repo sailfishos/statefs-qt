@@ -12,5 +12,6 @@
 
 void StatefsPlugin::registerTypes(char const* uri)
 {
-    qmlRegisterType<StateProperty>(uri, 1, 0, "StateProperty");
+    qmlRegisterType<StateProperty>(uri, 1, 1, "StateProperty");
+    qmlRegisterType<StateProperty>(uri, 1, 1, "ContextProperty");
 }

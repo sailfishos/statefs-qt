@@ -10,13 +10,41 @@
 #include <QObject>
 #include <QVariant>
 #include <QString>
+#include <QQmlParserStatus>
+
 #include <statefs/qt/client.hpp>
 #include <qtaround/util.hpp>
 
-class StateProperty : public QObject
+/**
+ * Declarative component providing access to the system/session state
+ * properties.
+ *
+ * It replaces deprecated ContextProperty component. Name is set to
+ * reflect the origin of information.
+ *
+ * Comparing to the ContextProperty the following features are added:
+ *
+ * - refresh() method adds ability to access continious properties:
+ *   ones changed constantly (they can't be polled, so they should be
+ *   read explicitely)
+ *
+ * - value can be set - to be used with properties allowing to change
+ *   the state
+ *
+ * Comparing to ContextProperty there are following changes:
+ *
+ * - if subscribed property is not set explicitely, component
+ *   subscribes for changes only when it is fully instantiated by Qml
+ *   engine (on componentComplete()), so there will not be any
+ *   redundant un/subscription cycles during initialization
+ * 
+ * - redundant un/subscribe() methods are removed
+ */
+class StateProperty : public QObject, public QQmlParserStatus
 {
     Q_OBJECT
     Q_CLASSINFO("DefaultProperty", "value")
+    Q_INTERFACES(QQmlParserStatus)
 
     Q_PROPERTY(QString key
                READ getKey
@@ -27,10 +55,10 @@ class StateProperty : public QObject
                WRITE setValue
                NOTIFY valueChanged)
 
-    Q_PROPERTY(bool active
-               READ getActive
-               WRITE setActive
-               NOTIFY activeChanged)
+    Q_PROPERTY(bool subscribed
+               READ getSubscribed
+               WRITE setSubscribed
+               NOTIFY subscribedChanged)
 
 public:
     StateProperty(QObject* parent = 0);
@@ -45,25 +73,31 @@ public:
     QVariant getValue() const;
     void setValue(QVariant);
 
-    bool getActive() const;
-    void setActive(bool);
+    bool getSubscribed() const;
+    void setSubscribed(bool);
 
 public slots:
     void refresh() const;
 
 signals:
     void valueChanged();
-    void activeChanged();
+    void subscribedChanged();
 
 private slots:
     void onValueChanged(QVariant);
+
+protected:
+    // QQmlParserStatus
+    virtual void classBegin();
+    virtual void componentComplete();
 
 private:
     void updateImpl();
     
     QString key_;
     QVariant value_;
-    bool isActive_;
+    enum class State { Unknown, Subscribed, Unsubscribed };
+    State state_;
     UNIQUE_PTR(statefs::qt::DiscreteProperty) impl_;
     UNIQUE_PTR(statefs::qt::PropertyWriter) writer_;
 };
