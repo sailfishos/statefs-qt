@@ -17,12 +17,7 @@
 
 namespace statefs { namespace qt {
 
-#if QT_VERSION < 0x050000
-typedef QFile FileErrorNs;
-#else
 typedef QFileDevice FileErrorNs;
-#endif
-
 class WriterImpl;
 
 /**

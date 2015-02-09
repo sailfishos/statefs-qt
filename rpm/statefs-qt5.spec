@@ -1,3 +1,7 @@
+%{!?cmake_install: %global cmake_install make install DESTDIR=%{buildroot}}
+%{!?_libqt5_includedir: %global _libqt5_includedir %{_qt5_headerdir}}
+
+
 Summary: Statefs Qt bindings
 Name: statefs-qt5
 Version: x.x.x
@@ -9,9 +13,10 @@ Source0: %{name}-%{version}.tar.bz2
 BuildRequires: cmake >= 2.8
 BuildRequires: statefs >= 0.3.18
 BuildRequires: pkgconfig(statefs-cpp) >= 0.3.18
-BuildRequires: pkgconfig(cor) >= 0.1.11
+BuildRequires: pkgconfig(cor) >= 0.1.17
+BuildRequires: pkgconfig(qtaround) >= 0.2.4
 BuildRequires: pkgconfig(Qt5Core)
-#BuildRequires: contextkit-devel
+BuildRequires: pkgconfig(Qt5Qml)
 
 %description
 %{summary}
@@ -62,10 +67,8 @@ make doc
 
 %install
 rm -rf %{buildroot}
-make install DESTDIR=%{buildroot}
-
-install -d -D -p -m755 %{buildroot}%{_datarootdir}/doc/statefs-qt5/html
-cp -R doc/html/ %{buildroot}%{_datarootdir}/doc/statefs-qt5/
+%cmake_install
+make doc
 
 %clean
 rm -rf %{buildroot}
@@ -76,7 +79,7 @@ rm -rf %{buildroot}
 
 %files devel
 %defattr(-,root,root,-)
-%{_qt5_headerdir}/statefs/qt/*.hpp
+%{_libqt5_includedir}/statefs/qt/*.hpp
 %{_libdir}/pkgconfig/statefs-qt5.pc
 
 %files doc
@@ -87,6 +90,7 @@ rm -rf %{buildroot}
 %defattr(-,root,root,-)
 %{_libdir}/libcontextkit-statefs-qt5.so
 %{_bindir}/contextkit-monitor
+%{_libdir}/qt5/qml/Mer/State/*
 
 %files %{subscriber_devel}
 %defattr(-,root,root,-)

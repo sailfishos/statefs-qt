@@ -3,7 +3,8 @@
 
 #include "actor.hpp"
 
-#include <cor/mt.hpp>
+//#include <cor/mt.hpp>
+#include <qtaround/mt.hpp>
 #include <functional>
 #include <future>
 
@@ -28,6 +29,11 @@ class ContextPropertyPrivate;
 
 namespace ckit {
 
+enum class FileStatus {
+    Opened,
+    NoFile,
+    NoAccess
+};
 
 class Property : public QObject
 {
@@ -39,6 +45,8 @@ public:
     QVariant subscribe();
     void unsubscribe();
 
+    bool update();
+
 signals:
     void changed(QVariant) const;
 
@@ -48,16 +56,8 @@ private slots:
 
 private:
     bool tryOpen();
-    enum OpenResult {
-        Opened,
-        DoesntExists,
-        CantOpen
-    };
-    OpenResult tryOpen(QFile &);
     void resubscribe();
     QVariant subscribe_();
-
-    bool update();
 
     QString key_;
     QFile user_file_;
@@ -73,6 +73,8 @@ private:
 
 class SubscribeRequest;
 class UnsubscribeRequest;
+class WriteRequest;
+class RefreshRequest;
 
 class PropertyMonitor : public QObject
 {
@@ -80,47 +82,20 @@ class PropertyMonitor : public QObject
 public:
     virtual bool event(QEvent *);
 
-    typedef cor::qt::Actor<PropertyMonitor> monitor_type;
-    typedef QSharedPointer<monitor_type> monitor_ptr;
+    typedef qtaround::mt::ActorHandle monitor_ptr;
     static monitor_ptr instance();
 private:
     void subscribe(SubscribeRequest*);
     void unsubscribe(UnsubscribeRequest*);
     Property *add(const QString &);
+    void write(WriteRequest *);
+    void refresh(RefreshRequest*);
 
     QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
     QMap<QString, Property*> properties_;
 
-    static QMutex actorGuard_;
+    static std::once_flag once_;
     static monitor_ptr instance_;
-};
-
-
-class ExitMonitor : public QObject
-{
-    Q_OBJECT;
-public:
-    ExitMonitor(PropertyMonitor::monitor_ptr p)
-        : QObject(QCoreApplication::instance())
-        , monitor_(p)
-    {
-        auto app = QCoreApplication::instance();
-        if (app) {
-            connect(app, SIGNAL(aboutToQuit())
-                    , this, SLOT(beforeAppQuit()));
-        }
-    }
-private slots:
-    void beforeAppQuit()
-    {
-        if (monitor_->isRunning()) {
-            monitor_->quit();
-            monitor_->wait();
-        }
-    }
-
-private:
-    PropertyMonitor::monitor_ptr monitor_;
 };
 
 }
@@ -148,6 +123,8 @@ public:
 
     static void ignoreCommander();
     static void setTypeCheck(bool typeCheck);
+
+    void refresh() const;
 
 signals:
     void valueChanged() const;

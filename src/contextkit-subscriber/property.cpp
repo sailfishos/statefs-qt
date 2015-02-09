@@ -1,8 +1,12 @@
 #include "property.hpp"
 #include <statefs/qt/util.hpp>
+#include <statefs/qt/client.hpp>
 
 #include <cor/mt.hpp>
 #include <cor/util.hpp>
+
+#include <qtaround/util.hpp>
+#include <qtaround/debug.hpp>
 
 #include <contextproperty.h>
 #include <QDebug>
@@ -11,6 +15,8 @@
 #include <QMutex>
 #include <memory>
 #include <poll.h>
+
+namespace debug = qtaround::debug;
 
 namespace {
 
@@ -25,7 +31,7 @@ void execute_nothrow_process_future_error
     } catch (std::future_error const &e) {
         on_future_error(e);
     } catch (std::exception const &e) {
-        qWarning() << "Ignoring exception: " << e.what() << ". " << msg;
+        debug::warning("Ignoring exception: ", e.what(), ". ", msg);
     // } catch (...) {
     //     // Those exceptions should not be catched, let's abort. Maybe
     //     // this is something bad
@@ -40,11 +46,70 @@ void execute_nothrow(F &&fn, char const *msg)
         (std::forward<F>(fn), msg, [msg](std::future_error const &e) {
             // skip, nothing can be done, maybe Qt has not delivered
             // QEvent to the target, maybe something else is happened.
-            qDebug() << "Future error: " << e.code().value()
-                     << ":" << e.what() << ". " << msg;
+            debug::warning("Future error: ", e.code().value()
+                           , ":", e.what(), ". ", msg);
         });
 }
+
+using ckit::FileStatus;
+
+FileStatus open(QFile &f, QIODevice::OpenMode mode)
+{
+    if (f.isOpen())
+        return FileStatus::Opened;
+
+    if (!f.exists())
+        return FileStatus::NoFile;
+
+    f.open(mode);
+    if (!f.isOpen())
+        return FileStatus::NoAccess;
+
+    return FileStatus::Opened;
 }
+
+}
+
+namespace statefs { namespace qt {
+
+// TODO now for simplicity it is implemented using
+// ContextPropertyPrivate while maybe it should be done in the
+// contrary way
+class DiscretePropertyImpl : public QObject
+{
+    Q_OBJECT;
+public:
+    DiscretePropertyImpl(QString const &, QObject *parent = nullptr);
+    ~DiscretePropertyImpl() {}
+
+    void refresh() const;
+
+signals:
+    void changed(QVariant);
+private slots:
+    void onChanged();
+private:
+    UNIQUE_PTR(ContextPropertyPrivate) impl_;
+};
+
+// TODO now for simplicity it is implemented using
+// ContextPropertyPrivate while it should be a separate class
+class PropertyWriterImpl : public QObject
+{
+    Q_OBJECT;
+public:
+    PropertyWriterImpl(QString const &, QObject *parent = nullptr);
+    ~PropertyWriterImpl() {}
+
+    void set(QVariant &&);
+signals:
+    void updated(bool);
+private:
+    QString key_;
+};
+
+}}
+
 
 namespace ckit
 {
@@ -55,7 +120,9 @@ public:
     enum Type {
         Subscribe = QEvent::User,
         Unsubscribe,
-        Subscribed
+        Subscribed,
+        Write,
+        Refresh
     };
 
     virtual ~Event();
@@ -67,27 +134,18 @@ private:
 
 };
 
-QMutex PropertyMonitor::actorGuard_;
+std::once_flag PropertyMonitor::once_;
 PropertyMonitor::monitor_ptr PropertyMonitor::instance_;
 
 PropertyMonitor::monitor_ptr PropertyMonitor::instance()
 {
-    monitor_ptr p = instance_;
-    if (p)
-        return p;
-
-    QMutexLocker lock(&actorGuard_);
-
-    if (instance_)
-        return instance_;
-
-    p.reset(new monitor_type([]() {
-                return new ckit::PropertyMonitor();
-            }));
-    new ExitMonitor(p);
-    p->startSync();
-    instance_ = p;
-
+    namespace mt = qtaround::mt;
+    std::call_once(once_, []() {
+            using ckit::PropertyMonitor;
+            auto ctor = []() { return make_qobject_unique<PropertyMonitor>(); };
+            instance_ = mt::startActorSync<PropertyMonitor>(ctor);
+            mt::deleteOnApplicationExit(instance_);
+        });
     return instance_;
 }
 
@@ -140,6 +198,50 @@ public:
     std::promise<void> done_;
 };
 
+using statefs::qt::PropertyWriterImpl;
+class WriteRequest : public QObject, public Event
+{
+    Q_OBJECT
+public:
+    WriteRequest(PropertyWriterImpl const *tgt
+                 , QString const &key
+                 , QVariant &&value)
+        : Event(Event::Write)
+        , tgt_(tgt)
+        , key_(key)
+        , value_(std::move(value))
+    {
+        connect(this, &WriteRequest::updated
+                , tgt, &PropertyWriterImpl::updated
+                , Qt::QueuedConnection);
+    }
+
+    WriteRequest(WriteRequest const &) = delete;
+    virtual ~WriteRequest() {}
+
+    PropertyWriterImpl const *tgt_;
+    QString key_;
+    QVariant value_;
+signals:
+    void updated(bool);
+};
+
+class RefreshRequest : public Event
+{
+public:
+    RefreshRequest(ContextPropertyPrivate const *tgt
+                    , QString const &key)
+        : Event(Event::Refresh)
+        , tgt_(tgt)
+        , key_(key)
+    {}
+    RefreshRequest(RefreshRequest const&) = delete;
+    virtual ~RefreshRequest() {}
+
+    ContextPropertyPrivate const *tgt_;
+    QString key_;
+};
+
 bool PropertyMonitor::event(QEvent *e)
 {
     if (e->type() < QEvent::User)
@@ -154,7 +256,7 @@ bool PropertyMonitor::event(QEvent *e)
             if (p)
                 subscribe(p);
             else
-                qWarning() << "PropertyMonitor: !SubscribeRequest";
+                debug::warning("PropertyMonitor: !SubscribeRequest");
             break;
         }
         case Event::Unsubscribe: {
@@ -162,16 +264,64 @@ bool PropertyMonitor::event(QEvent *e)
             if (p)
                 unsubscribe(p);
             else
-                qWarning() << "PropertyMonitor: !UnsubscribeRequest";
+                debug::warning("PropertyMonitor: !UnsubscribeRequest");
+            break;
+        }
+        case Event::Write: {
+            auto p = dynamic_cast<WriteRequest*>(e);
+            if (p)
+                write(p);
+            else
+                debug::warning("Bad WriteRequest");
+            break;
+        }
+        case Event::Refresh: {
+            auto p = dynamic_cast<RefreshRequest*>(e);
+            if (p)
+                refresh(p);
+            else
+                debug::warning("PropertyMonitor: !Refresh");
             break;
         }
         default:
-            qWarning() << "Unknown user event";
+            debug::warning("Unknown user event");
             res = QObject::event(e);
         }
     };
     execute_nothrow(fn, __PRETTY_FUNCTION__);
     return res;
+}
+
+void PropertyMonitor::write(WriteRequest *req)
+{
+    static const auto mode
+        = QIODevice::WriteOnly | QIODevice::Unbuffered;
+    auto isOk = false;
+    auto emit_on_exit = cor::on_scope_exit([req, isOk]() {
+            emit req->updated(isOk);
+        });
+    // implementation is quick and dirty: one redundant try to access
+    // session(user) file
+    auto const &key = req->key_;
+    QFile file(statefs::qt::getPath(key));
+    if (open(file, mode) != FileStatus::Opened) {
+        file.setFileName(statefs::qt::getSystemPath(key));
+        if (open(file, mode) != FileStatus::Opened) {
+            debug::warning("Can't access", key);
+            return;
+        }
+    }
+    auto on_exit = cor::on_scope_exit([&file]() { file.close(); });
+
+    auto s = statefs::qt::valueEncode(req->value_);
+    auto data = s.toUtf8();
+    auto len = file.write(data);
+    if (len == data.size()) {
+        isOk = true;
+    } else {
+        debug::warning("Wrong len", len, "writing", s, "to"
+                       , file.fileName(), "error",  file.error());
+    }
 }
 
 void PropertyMonitor::subscribe(SubscribeRequest *req)
@@ -182,7 +332,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     QVariant retval;
 
     if (!tgt) {
-        qWarning() << "Logic issue: subscription target is null";
+        debug::warning("Logic issue: subscription target is null");
         return;
     }
     auto notify_fn = [req, &retval, tgt]() {
@@ -196,7 +346,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
         });
 
     if (key.isEmpty()) {
-        qWarning() << "Empty contextkit key";
+        debug::warning("Empty contextkit key");
         return;
     }
 
@@ -249,6 +399,17 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
         properties_.erase(phandlers);
         handler->deleteLater();
     }
+}
+
+void PropertyMonitor::refresh(RefreshRequest *req)
+{
+    auto key = req->key_;
+    auto phandlers = properties_.find(key);
+    if (phandlers == properties_.end())
+        return;
+
+    auto handler = phandlers.value();
+    handler->update();
 }
 
 Property* PropertyMonitor::add(const QString &key)
@@ -315,7 +476,7 @@ static int read(QIODevice &src, QByteArray &dst
                 , size_t size, size_t offset = 0)
 {
     if ((size_t)dst.size() < offset + size) {
-        qWarning() << "Logical error: wrong dst QByteArray size";
+        debug::warning("Logical error: wrong dst QByteArray size");
         return 0;
     }
     return src.read(dst.data() + offset, size);
@@ -327,7 +488,7 @@ bool Property::update()
     bool is_updated = false;
 
     if (!tryOpen()) {
-        qWarning() << "Can't open " << file_->fileName();
+        debug::warning("Can't open ", file_->fileName());
         cache_ = statefs::qt::valueDefault(cache_);
         resubscribe();
         return is_updated;
@@ -354,8 +515,8 @@ bool Property::update()
         while (rc > 0) {
             bytes_read += rc;
             if ((size_t)bytes_read > max_statefs_file_size) {
-                qWarning() << "File size for " << file_->fileName()
-                           << "reached max " << max_statefs_file_size;
+                debug::warning("File size for " + file_->fileName() +
+                               "reached max ", max_statefs_file_size);
                 break;
             }
             // maybe there is more data to read
@@ -379,7 +540,7 @@ bool Property::update()
         }
         is_updated = true;
     } else {
-        qWarning() << "Error accessing? " << rc << "..." << file_->fileName();
+        debug::warning("Error accessing? ", rc, "..." + file_->fileName());
         resubscribe();
     }
     return is_updated;
@@ -392,36 +553,22 @@ void Property::handleActivated(int)
         emit changed(cache_);
 }
 
-Property::OpenResult Property::tryOpen(QFile &f)
-{
-    if (f.isOpen())
-        return Opened;
-
-    if (!f.exists())
-        return DoesntExists;
-
-    f.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
-    if (!f.isOpen())
-        return CantOpen;
-
-    return Opened;
-}
-
 bool Property::tryOpen()
 {
-    OpenResult res0, res1;
-    res0 = tryOpen(*file_);
-    if (res0 == Opened)
+    static const auto mode = QIODevice::ReadOnly | QIODevice::Unbuffered;
+    FileStatus res0, res1;
+    res0 = open(*file_, mode);
+    if (res0 == FileStatus::Opened)
         return true;
 
     file_ = (file_ == &user_file_) ? &sys_file_ : &user_file_;
 
-    res1 = tryOpen(*file_);
-    if (res1 == Opened)
+    res1 = open(*file_, mode);
+    if (res1 == FileStatus::Opened)
         return true;
 
-    auto info0 = (res0 == DoesntExists ? "no file" : "can't open");
-    auto info1 = (res1 == DoesntExists ? "no file" : "can't open");
+    auto info0 = (res0 == FileStatus::NoFile ? "no file" : "can't open");
+    auto info1 = (res1 == FileStatus::NoFile ? "no file" : "can't open");
     QString f0, f1;
     if (file_ == &user_file_) {
         f0 = "Sys";
@@ -430,8 +577,8 @@ bool Property::tryOpen()
         f0 = "User";
         f1 = "Sys";
     }
-    qWarning() << "Error accessing property " << key_ << ": "
-               << f0 << ": " << info0 << ", " << f1 << ": " << info1;
+    debug::warning("Error accessing property ", key_, ": "
+                   , f0, ": ", info0, ", ", f1, ": ", info1);
     file_ = &user_file_;
     return false;
 }
@@ -614,6 +761,10 @@ void ContextPropertyPrivate::setTypeCheck(bool typeCheck)
 {
 }
 
+void ContextPropertyPrivate::refresh() const
+{
+    actor()->postEvent(new ckit::RefreshRequest(this, key_));
+}
 
 ContextProperty::ContextProperty(const QString &key, QObject *parent)
     : QObject(parent)
@@ -676,6 +827,81 @@ void ContextProperty::setTypeCheck(bool typeCheck)
 {
 }
 
-#if QT_VERSION < 0x050000
-void ContextProperty::onValueChanged() { }
-#endif
+namespace statefs { namespace qt {
+
+DiscreteProperty::DiscreteProperty
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(new DiscretePropertyImpl(key, this))
+{
+    connect(impl_, &DiscretePropertyImpl::changed
+            , this, &DiscreteProperty::changed
+            , Qt::DirectConnection);
+}
+
+DiscreteProperty::~DiscreteProperty()
+{
+}
+
+void DiscreteProperty::refresh() const
+{
+    impl_->refresh();
+}
+
+PropertyWriter::PropertyWriter
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(new PropertyWriterImpl(key, this))
+{
+    connect(impl_, &PropertyWriterImpl::updated
+            , this, &PropertyWriter::updated
+            , Qt::DirectConnection);
+}
+
+void PropertyWriter::set(QVariant v)
+{
+    impl_->set(std::move(v));
+}
+
+DiscretePropertyImpl::DiscretePropertyImpl
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(make_qobject_unique<ContextPropertyPrivate>(key, this))
+{
+    connect(impl_.get(), &ContextPropertyPrivate::valueChanged
+            , this, &DiscretePropertyImpl::onChanged
+            , Qt::DirectConnection);
+    impl_->subscribe();
+}
+
+void DiscretePropertyImpl::onChanged()
+{
+    emit changed(impl_->value());
+}
+
+void DiscretePropertyImpl::refresh() const
+{
+    impl_->refresh();
+}
+
+PropertyWriter::~PropertyWriter()
+{
+}
+
+PropertyWriterImpl::PropertyWriterImpl
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , key_(key)
+{
+}
+
+void PropertyWriterImpl::set(QVariant &&v)
+{
+    using namespace ckit;
+    auto monitor = PropertyMonitor::instance();
+    monitor->postEvent(new WriteRequest(this, key_, std::move(v)));
+}
+
+}}
+
+#include "property.moc"

@@ -9,6 +9,8 @@
 #include <QScopedPointer>
 #include <QDebug>
 
+#include <qtaround/debug.hpp>
+
 namespace cor { namespace qt {
 
 class Actor_ : public QThread
@@ -32,16 +34,17 @@ public:
 
     virtual ~Actor() {
         if (obj_ && this != QThread::currentThread())
-            qWarning() << "Managed object is not deleted in a right thread"
-                       << "Current:" << QThread::currentThread()
-                       << ", Need:" << this;
+            qtaround::debug::warning
+                ("Managed object is not deleted in a right thread"
+                 , "Current:", QThread::currentThread()
+                 , ", Need:", this);
         auto app = QCoreApplication::instance();
         if (app) {
             if (isRunning())
                 quit();
             if (QThread::currentThread() != this)
                 if (!wait(10000))
-                    qWarning() << "Timeout: no quit from thread!";
+                    qtaround::debug::warning("Timeout: no quit from thread!");
         }
     }
 

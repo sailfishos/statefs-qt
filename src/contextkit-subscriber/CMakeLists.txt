@@ -1,50 +1,25 @@
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC TRUE)
+find_package(Qt5Core REQUIRED)
 
-if(ENABLE_QT4)
-
-configure_file(contextkit-statefs-qt4.pc.in contextkit-statefs-qt4.pc @ONLY)
-configure_file(contextsubscriber-1.0.pc.in contextsubscriber-1.0.pc @ONLY)
-
-# dirty hack: absolute path, moc is $$$
-qt4_wrap_cpp(LIB_MOC_SRC
-  /usr/include/contextsubscriber/contextproperty.h property.hpp actor.hpp
-)
-
-add_library(contextkit-statefs-qt4
-  SHARED property.cpp
-  ${LIB_MOC_SRC}
-)
-target_link_libraries(contextkit-statefs-qt4
-  ${QT_QTCORE_LIBRARY}
-  statefs-qt4
-  ${COR_LIBRARIES}
-)
-
-install(TARGETS contextkit-statefs-qt4 DESTINATION ${DST_LIB})
-install(FILES contextkit-statefs-qt4.pc DESTINATION ${DST_LIB}/pkgconfig)
-install(FILES contextsubscriber-1.0.pc DESTINATION ${DST_LIB}/pkgconfig)
-
-else(ENABLE_QT4)
-
-configure_file(contextkit-statefs.pc.in contextkit-statefs.pc @ONLY)
-configure_file(contextsubscriber-1.0.pc.in contextsubscriber-1.0.pc @ONLY)
+configure_install_pkgconfig(contextkit-statefs)
+configure_install_pkgconfig(contextsubscriber-1.0)
 
 qt5_wrap_cpp(LIB_MOC_SRC
-  ${CMAKE_SOURCE_DIR}/include/contextsubscriber/contextproperty.h actor.hpp
+  ${STATEFS_QT_MOC_HEADERS}
+  actor.hpp
 )
 
 add_library(contextkit-statefs-qt5
-  SHARED property.cpp
+  SHARED
+  property.cpp
   ${LIB_MOC_SRC}
 )
 target_link_libraries(contextkit-statefs-qt5
   ${Qt5Core_LIBRARIES}
   statefs-qt5
   ${COR_LIBRARIES}
+  ${QTAROUND_LIBRARIES}
 )
 
 install(TARGETS contextkit-statefs-qt5 DESTINATION ${DST_LIB})
-install(FILES contextkit-statefs.pc DESTINATION ${DST_LIB}/pkgconfig)
-install(FILES contextsubscriber-1.0.pc DESTINATION ${DST_LIB}/pkgconfig)
-
-endif(ENABLE_QT4)
