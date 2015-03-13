@@ -757,7 +757,7 @@ void ContextPropertyPrivate::ignoreCommander()
 {
 }
 
-void ContextPropertyPrivate::setTypeCheck(bool typeCheck)
+void ContextPropertyPrivate::setTypeCheck(bool)
 {
 }
 
@@ -823,7 +823,7 @@ void ContextProperty::ignoreCommander()
 {
 }
 
-void ContextProperty::setTypeCheck(bool typeCheck)
+void ContextProperty::setTypeCheck(bool)
 {
 }
 
