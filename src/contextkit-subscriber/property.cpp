@@ -189,9 +189,9 @@ public:
         , key_(key)
         , done_(std::move(done))
     {}
-    virtual ~UnsubscribeRequest() {}
-
-    UnsubscribeRequest(SubscribeRequest const&) = delete;
+    virtual ~UnsubscribeRequest() {
+        done_.set_value();
+    }
 
     ContextPropertyPrivate const *tgt_;
     QString key_;
@@ -215,8 +215,6 @@ public:
                 , tgt, &PropertyWriterImpl::updated
                 , Qt::QueuedConnection);
     }
-
-    WriteRequest(WriteRequest const &) = delete;
     virtual ~WriteRequest() {}
 
     PropertyWriterImpl const *tgt_;
@@ -235,7 +233,6 @@ public:
         , tgt_(tgt)
         , key_(key)
     {}
-    RefreshRequest(RefreshRequest const&) = delete;
     virtual ~RefreshRequest() {}
 
     ContextPropertyPrivate const *tgt_;
@@ -371,12 +368,6 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 {
-    auto on_exit = cor::on_scope_exit([req]() {
-            execute_nothrow([req]() {
-                    req->done_.set_value();
-                }, __PRETTY_FUNCTION__);
-        });
-
     auto tgt = req->tgt_;
     auto key = req->key_;
 
@@ -634,6 +625,29 @@ ContextPropertyPrivate::ContextPropertyPrivate(const QString &key, QObject *pare
 ContextPropertyPrivate::~ContextPropertyPrivate()
 {
     unsubscribe();
+    waitForUnsubscription();
+}
+
+bool ContextPropertyPrivate::waitForUnsubscription() const
+{
+    static const auto min_timeout = std::chrono::milliseconds(5000);
+    static const auto count_end = 3;
+
+    if (state_ == Initial)
+        return true;
+
+    std::future_status status;
+    for (auto count = 0; count != count_end; --count) {
+        // cor::wait_for for compatibility with gcc 4.6
+        status = cor::wait_for(on_unsubscribed_, min_timeout);
+         if (status != std::future_status::timeout) {
+             return true;
+         } else if (!count) {
+             debug::warning("Waiting for ages unsubscribing:", key_);
+         }
+    }
+    debug::warning("Timeout unsubscribing:", key_);
+    return false;
 }
 
 QString ContextPropertyPrivate::key() const
@@ -693,8 +707,8 @@ void ContextPropertyPrivate::subscribe() const
 
         // unsubscription is asynchronous, so wait for it to be finished
         // if resubcribing
-        if (state_ == Unsubscribing)
-            on_unsubscribed_.wait_for(std::chrono::milliseconds(20000));
+        if (state_ == Unsubscribing && !waitForUnsubscription())
+                debug::warning("Resubscribing while not unsubscribed yet");
 
         state_ = Subscribing;
         std::promise<QVariant> res;
@@ -757,7 +771,7 @@ void ContextPropertyPrivate::ignoreCommander()
 {
 }
 
-void ContextPropertyPrivate::setTypeCheck(bool typeCheck)
+void ContextPropertyPrivate::setTypeCheck(bool)
 {
 }
 
@@ -823,7 +837,7 @@ void ContextProperty::ignoreCommander()
 {
 }
 
-void ContextProperty::setTypeCheck(bool typeCheck)
+void ContextProperty::setTypeCheck(bool)
 {
 }
 

@@ -141,7 +141,7 @@ private:
     };
 
     bool update(QVariant const&) const;
-
+    bool waitForUnsubscription() const;
     static ckit::PropertyMonitor::monitor_ptr actor();
     QString key_;
     mutable State state_;
