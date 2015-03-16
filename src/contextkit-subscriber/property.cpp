@@ -193,8 +193,6 @@ public:
         done_.set_value();
     }
 
-    UnsubscribeRequest(SubscribeRequest const&) = delete;
-
     ContextPropertyPrivate const *tgt_;
     QString key_;
     std::promise<void> done_;
@@ -217,8 +215,6 @@ public:
                 , tgt, &PropertyWriterImpl::updated
                 , Qt::QueuedConnection);
     }
-
-    WriteRequest(WriteRequest const &) = delete;
     virtual ~WriteRequest() {}
 
     PropertyWriterImpl const *tgt_;
@@ -237,7 +233,6 @@ public:
         , tgt_(tgt)
         , key_(key)
     {}
-    RefreshRequest(RefreshRequest const&) = delete;
     virtual ~RefreshRequest() {}
 
     ContextPropertyPrivate const *tgt_;
