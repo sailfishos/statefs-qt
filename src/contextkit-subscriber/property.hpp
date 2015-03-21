@@ -5,6 +5,7 @@
 
 //#include <cor/mt.hpp>
 #include <qtaround/mt.hpp>
+#include <qtaround/debug.hpp>
 #include <functional>
 #include <future>
 
@@ -29,10 +30,100 @@ class ContextPropertyPrivate;
 
 namespace ckit {
 
-enum class FileStatus {
-    Opened,
-    NoFile,
-    NoAccess
+class File
+{
+public:
+    enum class Status {
+        Opened = 0,
+        NoFile,
+        NoAccess
+    };
+
+    enum Type { User = 0, System };
+
+    typedef std::unique_ptr<QFile> file_ptr;
+    typedef std::array<file_ptr, System + 1> files_type;
+
+    File(QString const &);
+    virtual ~File() {}
+
+    QString fileName() const
+    {
+        return file_ ? file_->fileName() : "?";
+    }
+
+    bool seek(qint64 pos)
+    {
+        return file_ ? file_->seek(pos) : false;
+    }
+
+    qint64 size() const
+    {
+        return file_ ? file_->size() : 0;
+    }
+
+    int handle() const
+    {
+        return file_ ? file_->handle() : -1;
+    }
+
+    virtual void close();
+    qint64 read(QByteArray &, size_t, size_t offset = 0);
+    QString key() const { return key_; }
+
+protected:
+    bool tryOpen(QIODevice::OpenMode);
+
+    file_ptr file_;
+
+private:
+    files_type openNew(QIODevice::OpenMode);
+    QString nameFor(Type) const;
+    QString getError(file_ptr const&) const;
+
+    Type type_;
+    QString key_;
+    size_t failures_count_;
+};
+
+class FileReader : public File
+{
+public:
+    FileReader(QString const &key) : File(key) {}
+
+    bool tryOpen()
+    {
+        return File::tryOpen(QIODevice::ReadOnly | QIODevice::Unbuffered);
+    }
+
+    template <typename T>
+    void connect(T *parent, void (T::*slot)(int))
+    {
+        auto h = handle();
+        if (h >= 0) {
+            notifier_.reset(new QSocketNotifier
+                            (handle(), QSocketNotifier::Read));
+            parent->connect(notifier_.data(), &QSocketNotifier::activated
+                            , parent, slot);
+        } else {
+            qtaround::debug::warning("Can't connect, invalid handle", key());
+        }
+    }
+    
+    virtual void close();
+    mutable QScopedPointer<QSocketNotifier> notifier_;
+};
+
+class FileWriter : public File
+{
+public:
+    FileWriter(QString const &key) : File(key) {}
+
+    bool tryOpen()
+    {
+        return File::tryOpen(QIODevice::WriteOnly | QIODevice::Unbuffered);
+    }
+    bool write(QByteArray const &);
 };
 
 class Property : public QObject
@@ -59,11 +150,7 @@ private:
     void resubscribe();
     QVariant subscribe_();
 
-    QString key_;
-    QFile user_file_;
-    QFile sys_file_;
-    QFile *file_;
-    mutable QScopedPointer<QSocketNotifier> notifier_;
+    FileReader file_;
     QByteArray buffer_;
     mutable int reopen_interval_;
     mutable QTimer *reopen_timer_;

@@ -6,7 +6,6 @@
 #include <cor/util.hpp>
 
 #include <qtaround/util.hpp>
-#include <qtaround/debug.hpp>
 
 #include <contextproperty.h>
 #include <QDebug>
@@ -49,23 +48,6 @@ void execute_nothrow(F &&fn, char const *msg)
             debug::warning("Future error: ", e.code().value()
                            , ":", e.what(), ". ", msg);
         });
-}
-
-using ckit::FileStatus;
-
-FileStatus open(QFile &f, QIODevice::OpenMode mode)
-{
-    if (f.isOpen())
-        return FileStatus::Opened;
-
-    if (!f.exists())
-        return FileStatus::NoFile;
-
-    f.open(mode);
-    if (!f.isOpen())
-        return FileStatus::NoAccess;
-
-    return FileStatus::Opened;
 }
 
 }
@@ -133,6 +115,130 @@ private:
     Event();
 
 };
+
+void File::close()
+{
+    if (file_) {
+        file_.reset();
+        failures_count_ = 0;
+        type_ = User;
+    }
+}
+
+qint64 File::read(QByteArray &dst, size_t size, size_t offset)
+{
+    qint64 res = 0;
+    if (file_) {
+        if ((size_t)dst.size() < offset + size) {
+            debug::warning("Logical error: wrong dst QByteArray size");
+        } else {
+            res = file_->read(dst.data() + offset, size);
+        }
+    }
+    return res;
+}
+
+File::File(QString const &key)
+    : type_(File::User)
+    , key_(key)
+    , failures_count_(0)
+{
+}
+
+QString File::getError(file_ptr const &f) const
+{
+    return (!f
+            ? "No file"
+            : (f->isOpen()
+               ? QString()
+               : (!f->exists()
+                  ? "No file"
+                  : "No access")));
+}
+
+QString File::nameFor(Type t) const
+{
+    return (t == File::User
+            ? statefs::qt::getPath(key_)
+            : statefs::qt::getSystemPath(key_));
+}
+
+File::files_type File::openNew(QIODevice::OpenMode mode)
+{
+    auto open = [](QIODevice::OpenMode mode, QString const &name) {
+        auto res = cor::make_unique<QFile>(name);
+        res->open(mode);
+        if (res->isOpen())
+            debug::debug("Opened", res->fileName());
+        return std::move(res);
+    };
+    files_type res;
+    auto f = open(mode, nameFor(type_));
+    if (!f->isOpen()) {
+        type_ = (type_ == System ? User : System);
+        f = open(mode, nameFor(type_));
+        if (!f->isOpen())
+            f.reset();
+    }
+    res[type_] = std::move(f);
+    return std::move(res);
+}
+
+bool File::tryOpen(QIODevice::OpenMode mode)
+{
+    if (file_) {
+        if (!file_->isOpen()) {
+            debug::warning("Property", key_, "is missed"
+                           , getError(file_));
+            close();
+        }
+    }
+    if (!file_) {
+        auto files = openNew(mode);
+        if (files[type_]) {
+            file_ = std::move(files[type_]);
+            failures_count_ = 0;
+        } else {
+            type_ = User;
+            if (!failures_count_++) {
+                debug::warning("Can't open property", key_
+                               , "Sys:", getError(files[System])
+                               , "User:", getError(files[User]));
+            } else {
+                debug::info("Failed try #", failures_count_, "to access", key_);
+            }
+        }
+    }
+    return !!file_;
+}
+
+void FileReader::close()
+{
+    notifier_.reset();
+    File::close();
+}
+
+bool FileWriter::write(QByteArray const &data)
+{
+    bool res = false;
+    QString reason;
+    if (!file_) {
+        reason = "File is not opened for " + key();
+    } else {
+        auto len = file_->write(data);
+        if (len == data.size()) {
+            res = true;
+        } else {
+            reason = QString("Wrong len returned: %1 (vs %2) for %3. Error '%4'")
+                .arg(len).arg(data.size()).arg(file_->fileName())
+                .arg(file_->error());
+        }
+    }
+    if (!res)
+        debug::warning("Failed to write: ", reason);
+
+    return res;
+}
 
 std::once_flag PropertyMonitor::once_;
 PropertyMonitor::monitor_ptr PropertyMonitor::instance_;
@@ -291,33 +397,19 @@ bool PropertyMonitor::event(QEvent *e)
 
 void PropertyMonitor::write(WriteRequest *req)
 {
-    static const auto mode
-        = QIODevice::WriteOnly | QIODevice::Unbuffered;
     auto isOk = false;
     auto emit_on_exit = cor::on_scope_exit([req, isOk]() {
             emit req->updated(isOk);
         });
     // implementation is quick and dirty: one redundant try to access
     // session(user) file
-    auto const &key = req->key_;
-    QFile file(statefs::qt::getPath(key));
-    if (open(file, mode) != FileStatus::Opened) {
-        file.setFileName(statefs::qt::getSystemPath(key));
-        if (open(file, mode) != FileStatus::Opened) {
-            debug::warning("Can't access", key);
-            return;
-        }
-    }
-    auto on_exit = cor::on_scope_exit([&file]() { file.close(); });
-
-    auto s = statefs::qt::valueEncode(req->value_);
-    auto data = s.toUtf8();
-    auto len = file.write(data);
-    if (len == data.size()) {
-        isOk = true;
+    FileWriter dst(req->key_);
+    if (dst.tryOpen()) {
+        auto s = statefs::qt::valueEncode(req->value_);
+        auto data = s.toUtf8();
+        isOk = dst.write(s.toUtf8());
     } else {
-        debug::warning("Wrong len", len, "writing", s, "to"
-                       , file.fileName(), "error",  file.error());
+        debug::warning("Can't access", req->key_);
     }
 }
 
@@ -411,11 +503,7 @@ Property* PropertyMonitor::add(const QString &key)
 
 Property::Property(const QString &key, QObject *parent)
     : QObject(parent)
-    , key_(key)
-    , user_file_(statefs::qt::getPath(key))
-    , sys_file_(statefs::qt::getSystemPath(key))
-    , file_(&user_file_)
-    , notifier_(nullptr)
+    , file_(key)
     , reopen_interval_(100)
     , reopen_timer_(new QTimer(this))
     , is_subscribed_(false)
@@ -434,7 +522,7 @@ void Property::trySubscribe()
     static const int max_interval_ = 1000 * 60 * 3;
     static const int fast_interval_ = 1000 * 3;
     static const int slow_interval_ = 1000 * 30;
-    if (tryOpen()) {
+    if (file_.tryOpen()) {
         reopen_interval_ = 500;
         subscribe_();
         return;
@@ -460,26 +548,16 @@ void Property::resubscribe()
     }
 }
 
-// 1MB?
-static const size_t max_statefs_file_size = 1024 * 1024;
-
-static int read(QIODevice &src, QByteArray &dst
-                , size_t size, size_t offset = 0)
-{
-    if ((size_t)dst.size() < offset + size) {
-        debug::warning("Logical error: wrong dst QByteArray size");
-        return 0;
-    }
-    return src.read(dst.data() + offset, size);
-}
-
 bool Property::update()
 {
+    // 1MB?
+    static const size_t max_statefs_file_size = 1024 * 1024;
+
     static const size_t cap = 31;
     bool is_updated = false;
 
-    if (!tryOpen()) {
-        debug::warning("Can't open ", file_->fileName());
+    if (!file_.tryOpen()) {
+        debug::warning("Can't open ", file_.fileName());
         cache_ = statefs::qt::valueDefault(cache_);
         resubscribe();
         return is_updated;
@@ -487,11 +565,11 @@ bool Property::update()
 
     // WORKAROUND: file is just opened and closed before reading from
     // real source to make vfs (?) reread file data to cache
-    QFile touchFile(file_->fileName());
+    QFile touchFile(file_.fileName());
     touchFile.open(QIODevice::ReadOnly | QIODevice::Unbuffered);
 
-    file_->seek(0);
-    auto size = file_->size();
+    file_.seek(0);
+    auto size = file_.size();
     // statefs file size can change, so need to read more and check:
     // if amount of data read > size, continue to read. Also readAll()
     // is not suitable for the same reason
@@ -499,26 +577,26 @@ bool Property::update()
     if (buffer_.size() < to_read + 1)
         buffer_.resize(to_read + 1 /* for \0 */);
 
-    int rc = read(*file_, buffer_, to_read);
+    auto rc = file_.read(buffer_, to_read);
     // read all data
     if (rc > size) {
         int bytes_read = 0;
         while (rc > 0) {
             bytes_read += rc;
             if ((size_t)bytes_read > max_statefs_file_size) {
-                debug::warning("File size for " + file_->fileName() +
+                debug::warning("File size for " + file_.fileName() +
                                "reached max ", max_statefs_file_size);
                 break;
             }
             // maybe there is more data to read
             buffer_.resize(buffer_.size() + bytes_read + 1);
-            rc = read(*file_, buffer_, bytes_read, bytes_read);
+            rc = file_.read(buffer_, bytes_read, bytes_read);
         }
         rc = bytes_read;
     }
     touchFile.close();
     if (rc >= 0) {
-        buffer_[rc] = '\0';
+        buffer_[(int)rc] = '\0';
         auto s = QString(buffer_);
         if (s.size()) {
             cache_ = statefs::qt::valueDecode(s);
@@ -531,7 +609,7 @@ bool Property::update()
         }
         is_updated = true;
     } else {
-        debug::warning("Error accessing? ", rc, "..." + file_->fileName());
+        debug::warning("Error accessing? ", rc, "..." + file_.fileName());
         resubscribe();
     }
     return is_updated;
@@ -544,36 +622,6 @@ void Property::handleActivated(int)
         emit changed(cache_);
 }
 
-bool Property::tryOpen()
-{
-    static const auto mode = QIODevice::ReadOnly | QIODevice::Unbuffered;
-    FileStatus res0, res1;
-    res0 = open(*file_, mode);
-    if (res0 == FileStatus::Opened)
-        return true;
-
-    file_ = (file_ == &user_file_) ? &sys_file_ : &user_file_;
-
-    res1 = open(*file_, mode);
-    if (res1 == FileStatus::Opened)
-        return true;
-
-    auto info0 = (res0 == FileStatus::NoFile ? "no file" : "can't open");
-    auto info1 = (res1 == FileStatus::NoFile ? "no file" : "can't open");
-    QString f0, f1;
-    if (file_ == &user_file_) {
-        f0 = "Sys";
-        f1 = "User";
-    } else {
-        f0 = "User";
-        f1 = "Sys";
-    }
-    debug::warning("Error accessing property ", key_, ": "
-                   , f0, ": ", info0, ", ", f1, ": ", info1);
-    file_ = &user_file_;
-    return false;
-}
-
 QVariant Property::subscribe()
 {
     return (!is_subscribed_ ? subscribe_() : cache_);
@@ -581,16 +629,13 @@ QVariant Property::subscribe()
 
 QVariant Property::subscribe_()
 {
-    if (!tryOpen()) {
+    if (!file_.tryOpen()) {
         reopen_timer_->start(reopen_interval_);
         return QVariant();
     }
     is_subscribed_ = true;
 
-    notifier_.reset(new QSocketNotifier
-                    (file_->handle(), QSocketNotifier::Read));
-    connect(notifier_.data(), SIGNAL(activated(int))
-            , this, SLOT(handleActivated(int)));
+    file_.connect(this, &Property::handleActivated);
 
     if (update())
         emit changed(cache_);
@@ -605,10 +650,7 @@ void Property::unsubscribe()
 
     is_subscribed_ = false;
 
-    notifier_.reset();
-
-    if (file_->isOpen())
-        file_->close();
+    file_.close();
 }
 
 }
@@ -702,13 +744,18 @@ const ContextPropertyInfo* ContextPropertyPrivate::info() const
 void ContextPropertyPrivate::subscribe() const
 {
     auto fn = [this]() {
-        if (state_ == Subscribing || state_ == Subscribed)
+        debug::debug("Subscribe request:", key_);
+        if (state_ == Subscribing || state_ == Subscribed) {
+            debug::debug("Already subscribed", key_);
             return;
-
+        }
         // unsubscription is asynchronous, so wait for it to be finished
         // if resubcribing
-        if (state_ == Unsubscribing && !waitForUnsubscription())
-                debug::warning("Resubscribing while not unsubscribed yet");
+        if (state_ == Unsubscribing) {
+            debug::debug("Waiting for being unsuscribed", key_);
+            if (!waitForUnsubscription())
+                debug::warning("Resubscribing while not unsubscribed yet:", key_);
+        }
 
         state_ = Subscribing;
         std::promise<QVariant> res;
