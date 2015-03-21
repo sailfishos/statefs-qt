@@ -108,3 +108,6 @@ rm -rf %{buildroot}
 %files tests
 %defattr(-,root,root,-)
 /opt/tests/%{name}/*
+
+%post -p /sbin/ldconfig
+%postun -p /sbin/ldconfig
