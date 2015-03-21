@@ -20,6 +20,7 @@
 #include <QSet>
 #include <QMap>
 #include <QSocketNotifier>
+#include <QPointer>
 
 class ContextPropertyInfo;
 class QSocketNotifier;
@@ -109,7 +110,7 @@ public:
             qtaround::debug::warning("Can't connect, invalid handle", key());
         }
     }
-    
+
     virtual void close();
     mutable QScopedPointer<QSocketNotifier> notifier_;
 };
@@ -125,6 +126,8 @@ public:
     }
     bool write(QByteArray const &);
 };
+
+class Adapter;
 
 class Property : public QObject
 {
@@ -178,11 +181,28 @@ private:
     void write(WriteRequest *);
     void refresh(RefreshRequest*);
 
-    QMap<QString, QSet<ContextPropertyPrivate const*> > targets_;
+    QMap<QString, QSet<QSharedPointer<Adapter> > > targets_;
     QMap<QString, Property*> properties_;
 
     static std::once_flag once_;
     static monitor_ptr instance_;
+};
+
+class Adapter : public QObject
+{
+    Q_OBJECT;
+public:
+    Adapter(ContextPropertyPrivate *target)
+        : target_(target)
+    {}
+
+
+public slots:
+    void onChanged(QVariant);
+private:
+    friend class ::ContextPropertyPrivate;
+    void detach();
+    ContextPropertyPrivate *target_;
 };
 
 }
@@ -216,9 +236,10 @@ public:
 signals:
     void valueChanged() const;
 
-public slots:
-    void onChanged(QVariant) const;
 private:
+
+    friend class ckit::Adapter;
+    void onChanged(QVariant) const;
 
     enum State {
         Initial,
@@ -237,6 +258,7 @@ private:
 
     mutable std::future<QVariant> on_subscribed_;
     mutable std::future<void> on_unsubscribed_;
+    mutable QSharedPointer<ckit::Adapter> adapter_;
 };
 
 #endif // _STATEFS_CKIT_PROPERTY_HPP_

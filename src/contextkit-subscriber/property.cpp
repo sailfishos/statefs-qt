@@ -265,7 +265,7 @@ Event::~Event() {}
 class SubscribeRequest : public Event
 {
 public:
-    SubscribeRequest(ContextPropertyPrivate const *tgt
+    SubscribeRequest(QSharedPointer<Adapter> tgt
                     , QString const&key
                     , std::promise<QVariant> &&res)
         : Event(Event::Subscribe)
@@ -275,7 +275,7 @@ public:
     {}
     virtual ~SubscribeRequest() {}
 
-    ContextPropertyPrivate const *tgt_;
+    QSharedPointer<Adapter> tgt_;
     QString key_;
     std::promise<QVariant> value_;
 
@@ -287,7 +287,7 @@ private:
 class UnsubscribeRequest : public Event
 {
 public:
-    UnsubscribeRequest(ContextPropertyPrivate const *tgt
+    UnsubscribeRequest(QSharedPointer<Adapter> tgt
                     , QString const &key
                     , std::promise<void> &&done)
         : Event(Event::Unsubscribe)
@@ -299,7 +299,7 @@ public:
         done_.set_value();
     }
 
-    ContextPropertyPrivate const *tgt_;
+    QSharedPointer<Adapter> tgt_;
     QString key_;
     std::promise<void> done_;
 };
@@ -333,7 +333,7 @@ signals:
 class RefreshRequest : public Event
 {
 public:
-    RefreshRequest(ContextPropertyPrivate const *tgt
+    RefreshRequest(QSharedPointer<Adapter> tgt
                     , QString const &key)
         : Event(Event::Refresh)
         , tgt_(tgt)
@@ -341,7 +341,7 @@ public:
     {}
     virtual ~RefreshRequest() {}
 
-    ContextPropertyPrivate const *tgt_;
+    QSharedPointer<Adapter> tgt_;
     QString key_;
 };
 
@@ -427,7 +427,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     auto notify_fn = [req, &retval, tgt]() {
         req->value_.set_value(retval);
         QMetaObject::invokeMethod
-        (const_cast<ContextPropertyPrivate*>(tgt), "onChanged"
+        (const_cast<Adapter*>(tgt.data()), "onChanged"
          , Qt::QueuedConnection, Q_ARG(QVariant, retval));
     };
     auto notify_on_exit = cor::on_scope_exit([notify_fn]() {
@@ -441,7 +441,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
 
     auto it = targets_.find(key);
     if (it == targets_.end()) {
-        it = targets_.insert(key, QSet<ContextPropertyPrivate const*>());
+        it = targets_.insert(key, QSet<QSharedPointer<Adapter> >());
         it->insert(tgt);
         handler = add(key);
     } else {
@@ -453,7 +453,8 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     }
 
     connect(handler, SIGNAL(changed(QVariant))
-            , tgt, SLOT(onChanged(QVariant)));
+            , tgt.data(), SLOT(onChanged(QVariant))
+            , Qt::QueuedConnection);
 
     retval = handler->subscribe();
 }
@@ -653,6 +654,19 @@ void Property::unsubscribe()
     file_.close();
 }
 
+void Adapter::detach()
+{
+    target_ = nullptr;
+}
+
+void Adapter::onChanged(QVariant v)
+{
+    if (target_)
+        target_->onChanged(std::move(v));
+    else
+        debug::info("Do not notify deleted target");
+}
+
 }
 
 
@@ -661,13 +675,14 @@ ContextPropertyPrivate::ContextPropertyPrivate(const QString &key, QObject *pare
     , key_(key)
     , state_(Initial)
     , is_cached_(false)
+    , adapter_(new ckit::Adapter(this))
 {
 }
 
 ContextPropertyPrivate::~ContextPropertyPrivate()
 {
     unsubscribe();
-    waitForUnsubscription();
+    adapter_->detach();
 }
 
 bool ContextPropertyPrivate::waitForUnsubscription() const
@@ -760,7 +775,7 @@ void ContextPropertyPrivate::subscribe() const
         state_ = Subscribing;
         std::promise<QVariant> res;
         on_subscribed_ = res.get_future();
-        auto ev = new ckit::SubscribeRequest(this, key_, std::move(res));
+        auto ev = new ckit::SubscribeRequest(this->adapter_, key_, std::move(res));
         actor()->postEvent(ev);
     };
     execute_nothrow(fn, __PRETTY_FUNCTION__);
@@ -774,7 +789,7 @@ void ContextPropertyPrivate::unsubscribe() const
 
         std::promise<void> res;
         on_unsubscribed_ = res.get_future();
-        auto ev = new ckit::UnsubscribeRequest(this, key_, std::move(res));
+        auto ev = new ckit::UnsubscribeRequest(this->adapter_, key_, std::move(res));
         actor()->postEvent(ev);
         state_ = Unsubscribing;
     };
@@ -824,7 +839,7 @@ void ContextPropertyPrivate::setTypeCheck(bool)
 
 void ContextPropertyPrivate::refresh() const
 {
-    actor()->postEvent(new ckit::RefreshRequest(this, key_));
+    actor()->postEvent(new ckit::RefreshRequest(this->adapter_, key_));
 }
 
 ContextProperty::ContextProperty(const QString &key, QObject *parent)
