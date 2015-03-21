@@ -1,7 +1,7 @@
 #ifndef _STATEFS_QML_PROPERTY_HPP_
 #define _STATEFS_QML_PROPERTY_HPP_
 /**
- * @file property.cpp
+ * @file qml/property.hpp
  * @brief Statefs property binding
  * @copyright (C) 2012-2014 Jolla Ltd.
  * @par License: LGPL 2.1 http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html

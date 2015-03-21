@@ -23,7 +23,9 @@ static int sigFd[2];
 void onExit(int)
 {
     char a = 1;
-    ::write(sigFd[0], &a, sizeof(a));
+    if (::write(sigFd[0], &a, sizeof(a)) < 0) {
+        // ignore
+    }
 }
 
 int usage(QStringList const &args, int rc)
@@ -51,7 +53,7 @@ void monitorProps(QStringList keys)
     for (auto name : keys) {
         auto p = new DiscreteProperty(name, app);
         app->connect(p, &DiscreteProperty::changed, [name](QVariant v) {
-                debug::info(name, "=", v);
+                debug::print(name, "=", v);
             });
     }
 }
