@@ -310,8 +310,8 @@ private:
 SubscribeRequest::~SubscribeRequest()
 {
     auto notify_fn = [this]() {
-        value_.set_value(result);
         tgt_->postEvent(new DataReplyEvent(result, tgt_));
+        value_.set_value(result);
     };
     execute_nothrow(notify_fn, __PRETTY_FUNCTION__);
 }
@@ -868,15 +868,26 @@ void ContextPropertyPrivate::unsubscribe() const
 
 void ContextPropertyPrivate::waitForSubscription() const
 {
+    static const auto min_timeout = std::chrono::milliseconds(5000);
+    static const auto count_end = 3;
+
     auto fn = [this]() {
         if (state_ != Subscribing)
             return;
 
-        auto status = cor::wait_for(on_subscribed_, std::chrono::milliseconds(2000));
-        if (status == std::future_status::ready) {
-            update(on_subscribed_.get());
+        std::future_status status;
+        for (auto count = 0; count != count_end; --count) {
+            // cor::wait_for for compatibility with gcc 4.6
+            status = cor::wait_for(on_subscribed_, min_timeout);
+            if (status != std::future_status::timeout) {
+                update(on_subscribed_.get());
+                state_ = Subscribed;
+                return;
+            } else if (!count) {
+                debug::warning("Waiting for ages subscribing:", key_);
+            }
         }
-        state_ = Subscribed;
+        debug::warning("Timeout subscribing:", key_);
     };
     execute_nothrow(fn, __PRETTY_FUNCTION__);
 }
