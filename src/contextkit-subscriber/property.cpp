@@ -680,12 +680,10 @@ QVariant Property::subscribe_()
 
 void Property::unsubscribe()
 {
-    if (!is_subscribed_)
-        return;
-
-    is_subscribed_ = false;
-
-    file_.close();
+    if (is_subscribed_) {
+        is_subscribed_ = false;
+        file_.close();
+    }
 }
 
 void Adapter::postEvent(ReplyEvent *e)
@@ -698,6 +696,7 @@ bool Adapter::event(QEvent *e)
 {
     if (e->type() < QEvent::User)
         return QObject::event(e);
+
     auto res = true;
     auto fn = [this, e, &res]() {
         auto t = static_cast<Event::Type>(e->type());
@@ -837,7 +836,7 @@ void ContextPropertyPrivate::subscribe() const
         // unsubscription is asynchronous, so wait for it to be finished
         // if resubcribing
         if (state_ == Unsubscribing) {
-            debug::debug("Waiting for being unsuscribed", key_);
+            debug::debug("Waiting for being unsubcribed", key_);
             if (!waitForUnsubscription())
                 debug::warning("Resubscribing while not unsubscribed yet:", key_);
         }
