@@ -133,6 +133,7 @@ class Property : public QObject
 {
     Q_OBJECT;
 public:
+    enum class Removed { No, Yes, Last };
     Property(QString const &key, QObject *parent);
     virtual ~Property();
 
@@ -141,6 +142,8 @@ public:
 
     bool update();
 
+    bool add(QSharedPointer<Adapter> const&);
+    Removed remove(QSharedPointer<Adapter> const &);
 signals:
     void changed(QVariant) const;
 
@@ -159,6 +162,7 @@ private:
     mutable QTimer *reopen_timer_;
     bool is_subscribed_;
     QVariant cache_;
+    QSet<QSharedPointer<Adapter> > targets_;
 };
 
 class SubscribeRequest;
@@ -181,7 +185,6 @@ private:
     void write(WriteRequest *);
     void refresh(RefreshRequest*);
 
-    QMap<QString, QSet<QSharedPointer<Adapter> > > targets_;
     QMap<QString, Property*> properties_;
 
     static std::once_flag once_;

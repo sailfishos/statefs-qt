@@ -273,16 +273,27 @@ public:
         , key_(key)
         , value_(std::move(res))
     {}
-    virtual ~SubscribeRequest() {}
+    virtual ~SubscribeRequest();
 
     QSharedPointer<Adapter> tgt_;
     QString key_;
     std::promise<QVariant> value_;
+    QVariant result;
 
 private:
     SubscribeRequest(SubscribeRequest const&);
 };
 
+SubscribeRequest::~SubscribeRequest()
+{
+    auto notify_fn = [this]() {
+        value_.set_value(result);
+        QMetaObject::invokeMethod
+        (tgt_.data(), "onChanged"
+         , Qt::QueuedConnection, Q_ARG(QVariant, result));
+    };
+    execute_nothrow(notify_fn, __PRETTY_FUNCTION__);
+}
 
 class UnsubscribeRequest : public Event
 {
@@ -413,6 +424,32 @@ void PropertyMonitor::write(WriteRequest *req)
     }
 }
 
+bool Property::add(QSharedPointer<Adapter> const &target)
+{
+    auto res = false;
+    auto it = targets_.find(target);
+    if (it == targets_.end()) {
+        targets_.insert(target);
+        res = true;
+        connect(this, SIGNAL(changed(QVariant))
+                , target.data(), SLOT(onChanged(QVariant))
+                , Qt::QueuedConnection);
+
+    }
+    return res;
+}
+
+Property::Removed Property::remove(QSharedPointer<Adapter> const &target)
+{
+    auto res = Removed::No;
+    auto it = targets_.find(target);
+    if (it != targets_.end()) {
+        targets_.erase(it);
+        res = (targets_.size() ? Removed::Yes : Removed::Last);
+    }
+    return res;
+}
+
 void PropertyMonitor::subscribe(SubscribeRequest *req)
 {
     auto tgt = req->tgt_;
@@ -424,39 +461,21 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
         debug::warning("Logic issue: subscription target is null");
         return;
     }
-    auto notify_fn = [req, &retval, tgt]() {
-        req->value_.set_value(retval);
-        QMetaObject::invokeMethod
-        (const_cast<Adapter*>(tgt.data()), "onChanged"
-         , Qt::QueuedConnection, Q_ARG(QVariant, retval));
-    };
-    auto notify_on_exit = cor::on_scope_exit([notify_fn]() {
-            execute_nothrow(notify_fn, __PRETTY_FUNCTION__);
-        });
 
     if (key.isEmpty()) {
         debug::warning("Empty contextkit key");
         return;
     }
 
-    auto it = targets_.find(key);
-    if (it == targets_.end()) {
-        it = targets_.insert(key, QSet<QSharedPointer<Adapter> >());
-        it->insert(tgt);
+    auto it = properties_.find(key);
+    if (it == properties_.end()) {
         handler = add(key);
     } else {
-        if (it->contains(tgt)) {
-            return;
-        }
-        it->insert(tgt);
-        handler = properties_[key];
+        handler = it.value();
     }
+    handler->add(tgt);
 
-    connect(handler, SIGNAL(changed(QVariant))
-            , tgt.data(), SLOT(onChanged(QVariant))
-            , Qt::QueuedConnection);
-
-    retval = handler->subscribe();
+    req->result = handler->subscribe();
 }
 
 void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
@@ -464,22 +483,14 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     auto tgt = req->tgt_;
     auto key = req->key_;
 
-    auto ptargets = targets_.find(key);
-    if (ptargets == targets_.end())
-        return;
-
-    if (!ptargets->remove(tgt))
-        return;
-
     auto phandlers = properties_.find(key);
     if (phandlers == properties_.end())
         return;
 
     auto handler = phandlers.value();
 
-    if (ptargets->isEmpty()) {
+    if (handler->remove(tgt) == Property::Removed::Last) {
         // last subscriber is gone
-        targets_.erase(ptargets);
         properties_.erase(phandlers);
         handler->deleteLater();
     }
@@ -683,6 +694,7 @@ ContextPropertyPrivate::~ContextPropertyPrivate()
 {
     unsubscribe();
     adapter_->detach();
+    waitForUnsubscription();
 }
 
 bool ContextPropertyPrivate::waitForUnsubscription() const
