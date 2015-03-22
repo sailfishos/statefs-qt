@@ -104,7 +104,8 @@ public:
         Unsubscribe,
         Subscribed,
         Write,
-        Refresh
+        Refresh,
+        Data
     };
 
     virtual ~Event();
@@ -262,6 +263,28 @@ Event::Event(Event::Type t)
 
 Event::~Event() {}
 
+class ReplyEvent : public Event
+{
+public:
+    ReplyEvent(Event::Type t, QSharedPointer<Adapter> const &tgt)
+        : Event(t)
+        , tgt_(tgt)
+    {}
+
+    QSharedPointer<Adapter> tgt_;
+};
+
+class DataReplyEvent : public ReplyEvent
+{
+public:
+    DataReplyEvent(QVariant v, QSharedPointer<Adapter> const &tgt)
+        : ReplyEvent(Event::Data, tgt)
+        , data_(std::move(v))
+    {}
+
+    QVariant data_;
+};
+
 class SubscribeRequest : public Event
 {
 public:
@@ -288,11 +311,7 @@ SubscribeRequest::~SubscribeRequest()
 {
     auto notify_fn = [this]() {
         value_.set_value(result);
-        QMetaObject::invokeMethod
-        (tgt_.data(), "onChanged"
-         , Qt::QueuedConnection
-         , Q_ARG(QVariant, result)
-         , Q_ARG(QSharedPointer<Adapter>, tgt_));
+        tgt_->postEvent(new DataReplyEvent(result, tgt_));
     };
     execute_nothrow(notify_fn, __PRETTY_FUNCTION__);
 }
@@ -426,6 +445,12 @@ void PropertyMonitor::write(WriteRequest *req)
     }
 }
 
+void Property::changed(QVariant const &v) const
+{
+    for (auto tgt : targets_)
+        tgt->postEvent(new DataReplyEvent(v, tgt));
+}
+
 bool Property::add(QSharedPointer<Adapter> const &target)
 {
     auto res = false;
@@ -433,15 +458,6 @@ bool Property::add(QSharedPointer<Adapter> const &target)
     if (it == targets_.end()) {
         targets_.insert(target);
         res = true;
-        auto hold_invoke = [target](QVariant v) {
-            QMetaObject::invokeMethod
-            (target.data(), "onChanged"
-             , Qt::QueuedConnection
-             , Q_ARG(QVariant, v)
-             , Q_ARG(QSharedPointer<Adapter>, target));
-        };
-        connect(this, &Property::changed, hold_invoke);
-
     }
     return res;
 }
@@ -638,7 +654,7 @@ bool Property::update()
 void Property::handleActivated(int)
 {
     if (update())
-        emit changed(cache_);
+        changed(cache_);
 }
 
 QVariant Property::subscribe()
@@ -657,7 +673,7 @@ QVariant Property::subscribe_()
     file_.connect(this, &Property::handleActivated);
 
     if (update())
-        emit changed(cache_);
+        changed(cache_);
 
     return cache_;
 }
@@ -672,12 +688,43 @@ void Property::unsubscribe()
     file_.close();
 }
 
+void Adapter::postEvent(ReplyEvent *e)
+{
+    QCoreApplication::postEvent(this, static_cast<QEvent*>(e));
+}
+
+
+bool Adapter::event(QEvent *e)
+{
+    if (e->type() < QEvent::User)
+        return QObject::event(e);
+    auto res = true;
+    auto fn = [this, e, &res]() {
+        auto t = static_cast<Event::Type>(e->type());
+        switch (t) {
+        case Event::Data: {
+            auto p = dynamic_cast<DataReplyEvent*>(e);
+            if (p)
+                onChanged(std::move(p->data_));
+            else
+                debug::warning("Property: !DataReplyEvent");
+            break;
+        }
+        default:
+            debug::warning("Unknown user event");
+            res = QObject::event(e);
+        }
+    };
+    execute_nothrow(fn, __PRETTY_FUNCTION__);
+    return res;
+}
+
 void Adapter::detach()
 {
     target_ = nullptr;
 }
 
-void Adapter::onChanged(QVariant v, QSharedPointer<Adapter>)
+void Adapter::onChanged(QVariant v)
 {
     if (target_)
         target_->onChanged(std::move(v));
@@ -701,7 +748,6 @@ ContextPropertyPrivate::~ContextPropertyPrivate()
 {
     unsubscribe();
     adapter_->detach();
-    //waitForUnsubscription();
 }
 
 bool ContextPropertyPrivate::waitForUnsubscription() const
@@ -720,6 +766,7 @@ bool ContextPropertyPrivate::waitForUnsubscription() const
             status = cor::wait_for(on_unsubscribed_, min_timeout);
             if (status != std::future_status::timeout) {
                 res = true;
+                return;
             } else if (!count) {
                 debug::warning("Waiting for ages unsubscribing:", key_);
             }

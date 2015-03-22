@@ -134,6 +134,7 @@ class Property : public QObject
     Q_OBJECT;
 public:
     enum class Removed { No, Yes, Last };
+
     Property(QString const &key, QObject *parent);
     virtual ~Property();
 
@@ -144,8 +145,6 @@ public:
 
     bool add(QSharedPointer<Adapter> const&);
     Removed remove(QSharedPointer<Adapter> const &);
-signals:
-    void changed(QVariant) const;
 
 private slots:
     void handleActivated(int);
@@ -155,6 +154,7 @@ private:
     bool tryOpen();
     void resubscribe();
     QVariant subscribe_();
+    void changed(QVariant const&) const;
 
     FileReader file_;
     QByteArray buffer_;
@@ -191,19 +191,18 @@ private:
     static monitor_ptr instance_;
 };
 
+class ReplyEvent;
 class Adapter : public QObject
 {
-    Q_OBJECT;
+    Q_OBJECT
 public:
-    Adapter(ContextPropertyPrivate *target)
-        : target_(target)
-    {}
+    void postEvent(ReplyEvent *);
+    virtual bool event(QEvent *);
 
-
-public slots:
-    void onChanged(QVariant, QSharedPointer<Adapter>);
 private:
     friend class ::ContextPropertyPrivate;
+    Adapter(ContextPropertyPrivate *target) : target_(target) {}
+    void onChanged(QVariant);
     void detach();
     ContextPropertyPrivate *target_;
 };
