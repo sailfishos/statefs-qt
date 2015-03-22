@@ -201,7 +201,7 @@ public:
 
 
 public slots:
-    void onChanged(QVariant);
+    void onChanged(QVariant, QSharedPointer<Adapter>);
 private:
     friend class ::ContextPropertyPrivate;
     void detach();

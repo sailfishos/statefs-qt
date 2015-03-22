@@ -290,7 +290,9 @@ SubscribeRequest::~SubscribeRequest()
         value_.set_value(result);
         QMetaObject::invokeMethod
         (tgt_.data(), "onChanged"
-         , Qt::QueuedConnection, Q_ARG(QVariant, result));
+         , Qt::QueuedConnection
+         , Q_ARG(QVariant, result)
+         , Q_ARG(QSharedPointer<Adapter>, tgt_));
     };
     execute_nothrow(notify_fn, __PRETTY_FUNCTION__);
 }
@@ -431,9 +433,14 @@ bool Property::add(QSharedPointer<Adapter> const &target)
     if (it == targets_.end()) {
         targets_.insert(target);
         res = true;
-        connect(this, SIGNAL(changed(QVariant))
-                , target.data(), SLOT(onChanged(QVariant))
-                , Qt::QueuedConnection);
+        auto hold_invoke = [target](QVariant v) {
+            QMetaObject::invokeMethod
+            (target.data(), "onChanged"
+             , Qt::QueuedConnection
+             , Q_ARG(QVariant, v)
+             , Q_ARG(QSharedPointer<Adapter>, target));
+        };
+        connect(this, &Property::changed, hold_invoke);
 
     }
     return res;
@@ -670,7 +677,7 @@ void Adapter::detach()
     target_ = nullptr;
 }
 
-void Adapter::onChanged(QVariant v)
+void Adapter::onChanged(QVariant v, QSharedPointer<Adapter>)
 {
     if (target_)
         target_->onChanged(std::move(v));
@@ -694,7 +701,7 @@ ContextPropertyPrivate::~ContextPropertyPrivate()
 {
     unsubscribe();
     adapter_->detach();
-    waitForUnsubscription();
+    //waitForUnsubscription();
 }
 
 bool ContextPropertyPrivate::waitForUnsubscription() const
@@ -705,18 +712,22 @@ bool ContextPropertyPrivate::waitForUnsubscription() const
     if (state_ == Initial)
         return true;
 
-    std::future_status status;
-    for (auto count = 0; count != count_end; --count) {
-        // cor::wait_for for compatibility with gcc 4.6
-        status = cor::wait_for(on_unsubscribed_, min_timeout);
-         if (status != std::future_status::timeout) {
-             return true;
-         } else if (!count) {
-             debug::warning("Waiting for ages unsubscribing:", key_);
-         }
-    }
-    debug::warning("Timeout unsubscribing:", key_);
-    return false;
+    auto res = false;
+    auto fn = [this, &res]() {
+        std::future_status status;
+        for (auto count = 0; count != count_end; --count) {
+            // cor::wait_for for compatibility with gcc 4.6
+            status = cor::wait_for(on_unsubscribed_, min_timeout);
+            if (status != std::future_status::timeout) {
+                res = true;
+            } else if (!count) {
+                debug::warning("Waiting for ages unsubscribing:", key_);
+            }
+        }
+        debug::warning("Timeout unsubscribing:", key_);
+    };
+    execute_nothrow(fn, __PRETTY_FUNCTION__);
+    return res;
 }
 
 QString ContextPropertyPrivate::key() const
