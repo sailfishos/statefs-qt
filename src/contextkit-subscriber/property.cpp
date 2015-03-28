@@ -17,6 +17,20 @@
 
 namespace debug = qtaround::debug;
 
+class ContextPropertyPrivateHandle
+{
+public:
+    ContextPropertyPrivateHandle(QString const &key)
+        : impl_(new ContextPropertyPrivate(key))
+    {}
+    virtual ~ContextPropertyPrivateHandle()
+    {
+        impl_->detach();
+    }
+protected:
+    ContextPropertyPrivate *impl_;
+};
+
 namespace {
 
 // to wrap code to be executed from the code which does not support
@@ -58,11 +72,12 @@ namespace statefs { namespace qt {
 // ContextPropertyPrivate while maybe it should be done in the
 // contrary way
 class DiscretePropertyImpl : public QObject
+                           , private ContextPropertyPrivateHandle
 {
     Q_OBJECT;
 public:
     DiscretePropertyImpl(QString const &, QObject *parent = nullptr);
-    ~DiscretePropertyImpl() {}
+    ~DiscretePropertyImpl();
 
     void refresh() const;
 
@@ -70,31 +85,31 @@ signals:
     void changed(QVariant);
 private slots:
     void onChanged();
-private:
-    UNIQUE_PTR(ContextPropertyPrivate) impl_;
 };
 
-// TODO now for simplicity it is implemented using
-// ContextPropertyPrivate while it should be a separate class
 class PropertyWriterImpl : public QObject
 {
     Q_OBJECT;
 public:
-    PropertyWriterImpl(QString const &, QObject *parent = nullptr);
+    PropertyWriterImpl(QString const &);
     ~PropertyWriterImpl() {}
 
     void set(QVariant &&);
+    virtual bool event(QEvent *);
+
 signals:
     void updated(bool);
 private:
+    friend class PropertyWriter;
+    void detach();
+    QSharedPointer<PropertyWriterImpl> handle_;
     QString key_;
 };
 
 }}
 
 
-namespace ckit
-{
+namespace statefs { namespace qt {
 
 class Event : public QEvent
 {
@@ -105,7 +120,8 @@ public:
         Subscribed,
         Write,
         Refresh,
-        Data
+        Data,
+        WriteStatus
     };
 
     virtual ~Event();
@@ -248,7 +264,7 @@ PropertyMonitor::monitor_ptr PropertyMonitor::instance()
 {
     namespace mt = qtaround::mt;
     std::call_once(once_, []() {
-            using ckit::PropertyMonitor;
+            using statefs::qt::PropertyMonitor;
             auto ctor = []() { return make_qobject_unique<PropertyMonitor>(); };
             instance_ = mt::startActorSync<PropertyMonitor>(ctor);
             mt::deleteOnApplicationExit(instance_);
@@ -266,18 +282,18 @@ Event::~Event() {}
 class ReplyEvent : public Event
 {
 public:
-    ReplyEvent(Event::Type t, QSharedPointer<Adapter> const &tgt)
+    ReplyEvent(Event::Type t, target_handle const &tgt)
         : Event(t)
         , tgt_(tgt)
     {}
 
-    QSharedPointer<Adapter> tgt_;
+    target_handle tgt_;
 };
 
 class DataReplyEvent : public ReplyEvent
 {
 public:
-    DataReplyEvent(QVariant v, QSharedPointer<Adapter> const &tgt)
+    DataReplyEvent(QVariant v, target_handle const &tgt)
         : ReplyEvent(Event::Data, tgt)
         , data_(std::move(v))
     {}
@@ -288,7 +304,7 @@ public:
 class SubscribeRequest : public Event
 {
 public:
-    SubscribeRequest(QSharedPointer<Adapter> tgt
+    SubscribeRequest(target_handle tgt
                     , QString const&key
                     , std::promise<QVariant> &&res)
         : Event(Event::Subscribe)
@@ -298,7 +314,7 @@ public:
     {}
     virtual ~SubscribeRequest();
 
-    QSharedPointer<Adapter> tgt_;
+    target_handle tgt_;
     QString key_;
     std::promise<QVariant> value_;
     QVariant result;
@@ -319,7 +335,7 @@ SubscribeRequest::~SubscribeRequest()
 class UnsubscribeRequest : public Event
 {
 public:
-    UnsubscribeRequest(QSharedPointer<Adapter> tgt
+    UnsubscribeRequest(target_handle tgt
                     , QString const &key
                     , std::promise<void> &&done)
         : Event(Event::Unsubscribe)
@@ -331,41 +347,54 @@ public:
         done_.set_value();
     }
 
-    QSharedPointer<Adapter> tgt_;
+    target_handle tgt_;
     QString key_;
     std::promise<void> done_;
 };
 
 using statefs::qt::PropertyWriterImpl;
-class WriteRequest : public QObject, public Event
+class WriteReply : public Event
 {
-    Q_OBJECT
 public:
-    WriteRequest(PropertyWriterImpl const *tgt
+    WriteReply(QSharedPointer<PropertyWriterImpl> const &hold
+                , bool is_updated)
+        : Event(Event::WriteStatus)
+        , hold_(hold)
+        , is_updated_(is_updated)
+    { }
+
+    QSharedPointer<PropertyWriterImpl> hold_;
+    bool is_updated_;
+};
+
+class WriteRequest : public Event
+{
+public:
+    WriteRequest(QSharedPointer<PropertyWriterImpl> const &tgt
                  , QString const &key
                  , QVariant &&value)
         : Event(Event::Write)
         , tgt_(tgt)
         , key_(key)
         , value_(std::move(value))
-    {
-        connect(this, &WriteRequest::updated
-                , tgt, &PropertyWriterImpl::updated
-                , Qt::QueuedConnection);
-    }
-    virtual ~WriteRequest() {}
+    { }
 
-    PropertyWriterImpl const *tgt_;
+    void updated(bool is_updated)
+    {
+        QEvent *p = (QEvent*)new WriteReply(tgt_, is_updated);
+        QCoreApplication::postEvent
+            (tgt_.data(), p);
+    }
+
+    QSharedPointer<PropertyWriterImpl> tgt_;
     QString key_;
     QVariant value_;
-signals:
-    void updated(bool);
 };
 
 class RefreshRequest : public Event
 {
 public:
-    RefreshRequest(QSharedPointer<Adapter> tgt
+    RefreshRequest(target_handle tgt
                     , QString const &key)
         : Event(Event::Refresh)
         , tgt_(tgt)
@@ -373,7 +402,7 @@ public:
     {}
     virtual ~RefreshRequest() {}
 
-    QSharedPointer<Adapter> tgt_;
+    target_handle tgt_;
     QString key_;
 };
 
@@ -451,7 +480,7 @@ void Property::changed(QVariant const &v) const
         tgt->postEvent(new DataReplyEvent(v, tgt));
 }
 
-bool Property::add(QSharedPointer<Adapter> const &target)
+bool Property::add(target_handle const &target)
 {
     auto res = false;
     auto it = targets_.find(target);
@@ -462,7 +491,7 @@ bool Property::add(QSharedPointer<Adapter> const &target)
     return res;
 }
 
-Property::Removed Property::remove(QSharedPointer<Adapter> const &target)
+Property::Removed Property::remove(target_handle const &target)
 {
     auto res = Removed::No;
     auto it = targets_.find(target);
@@ -686,67 +715,27 @@ void Property::unsubscribe()
     }
 }
 
-void Adapter::postEvent(ReplyEvent *e)
-{
-    QCoreApplication::postEvent(this, static_cast<QEvent*>(e));
-}
+}}
 
+using statefs::qt::PropertyMonitor;
+using statefs::qt::ReplyEvent;
 
-bool Adapter::event(QEvent *e)
-{
-    if (e->type() < QEvent::User)
-        return QObject::event(e);
-
-    auto res = true;
-    auto fn = [this, e, &res]() {
-        auto t = static_cast<Event::Type>(e->type());
-        switch (t) {
-        case Event::Data: {
-            auto p = dynamic_cast<DataReplyEvent*>(e);
-            if (p)
-                onChanged(std::move(p->data_));
-            else
-                debug::warning("Property: !DataReplyEvent");
-            break;
-        }
-        default:
-            debug::warning("Unknown user event");
-            res = QObject::event(e);
-        }
-    };
-    execute_nothrow(fn, __PRETTY_FUNCTION__);
-    return res;
-}
-
-void Adapter::detach()
-{
-    target_ = nullptr;
-}
-
-void Adapter::onChanged(QVariant v)
-{
-    if (target_)
-        target_->onChanged(std::move(v));
-    else
-        debug::info("Do not notify deleted target");
-}
-
-}
-
-
-ContextPropertyPrivate::ContextPropertyPrivate(const QString &key, QObject *parent)
-    : QObject(parent)
-    , key_(key)
+ContextPropertyPrivate::ContextPropertyPrivate(const QString &key)
+    : key_(key)
     , state_(Initial)
     , is_cached_(false)
-    , adapter_(new ckit::Adapter(this))
+    , handle_(this)
 {
 }
 
 ContextPropertyPrivate::~ContextPropertyPrivate()
 {
     unsubscribe();
-    adapter_->detach();
+}
+
+void ContextPropertyPrivate::detach()
+{
+    handle_.reset();
 }
 
 bool ContextPropertyPrivate::waitForUnsubscription() const
@@ -791,9 +780,9 @@ QVariant ContextPropertyPrivate::value() const
     return value(QVariant());
 }
 
-ckit::PropertyMonitor::monitor_ptr ContextPropertyPrivate::actor()
+PropertyMonitor::monitor_ptr ContextPropertyPrivate::actor()
 {
-    return ckit::PropertyMonitor::instance();
+    return PropertyMonitor::instance();
 }
 
 void ContextPropertyPrivate::onChanged(QVariant v) const
@@ -803,6 +792,40 @@ void ContextPropertyPrivate::onChanged(QVariant v) const
 
     if (update(v))
         emit valueChanged();
+}
+
+void ContextPropertyPrivate::postEvent(ReplyEvent *e)
+{
+    QCoreApplication::postEvent(this, static_cast<QEvent*>(e));
+}
+
+
+bool ContextPropertyPrivate::event(QEvent *e)
+{
+    using statefs::qt::Event;
+    using statefs::qt::DataReplyEvent;
+    if (e->type() < QEvent::User)
+        return QObject::event(e);
+
+    auto res = true;
+    auto fn = [this, e, &res]() {
+        auto t = static_cast<Event::Type>(e->type());
+        switch (t) {
+        case Event::Data: {
+            auto p = dynamic_cast<DataReplyEvent*>(e);
+            if (p)
+                onChanged(std::move(p->data_));
+            else
+                debug::warning("Property: !DataReplyEvent");
+            break;
+        }
+        default:
+            debug::warning("Unknown user event");
+            res = QObject::event(e);
+        }
+    };
+    execute_nothrow(fn, __PRETTY_FUNCTION__);
+    return res;
 }
 
 bool ContextPropertyPrivate::update(QVariant const &v) const
@@ -828,6 +851,7 @@ const ContextPropertyInfo* ContextPropertyPrivate::info() const
 void ContextPropertyPrivate::subscribe() const
 {
     auto fn = [this]() {
+        using statefs::qt::SubscribeRequest;
         debug::debug("Subscribe request:", key_);
         if (state_ == Subscribing || state_ == Subscribed) {
             debug::debug("Already subscribed", key_);
@@ -844,7 +868,7 @@ void ContextPropertyPrivate::subscribe() const
         state_ = Subscribing;
         std::promise<QVariant> res;
         on_subscribed_ = res.get_future();
-        auto ev = new ckit::SubscribeRequest(this->adapter_, key_, std::move(res));
+        auto ev = new SubscribeRequest(this->handle_, key_, std::move(res));
         actor()->postEvent(ev);
     };
     execute_nothrow(fn, __PRETTY_FUNCTION__);
@@ -853,12 +877,13 @@ void ContextPropertyPrivate::subscribe() const
 void ContextPropertyPrivate::unsubscribe() const
 {
     auto fn = [this]() {
+        using statefs::qt::UnsubscribeRequest;
         if (state_ == Unsubscribing)
             return;
 
         std::promise<void> res;
         on_unsubscribed_ = res.get_future();
-        auto ev = new ckit::UnsubscribeRequest(this->adapter_, key_, std::move(res));
+        auto ev = new UnsubscribeRequest(this->handle_, key_, std::move(res));
         actor()->postEvent(ev);
         state_ = Unsubscribing;
     };
@@ -919,12 +944,13 @@ void ContextPropertyPrivate::setTypeCheck(bool)
 
 void ContextPropertyPrivate::refresh() const
 {
-    actor()->postEvent(new ckit::RefreshRequest(this->adapter_, key_));
+    using statefs::qt::RefreshRequest;
+    actor()->postEvent(new RefreshRequest(this->handle_, key_));
 }
 
 ContextProperty::ContextProperty(const QString &key, QObject *parent)
     : QObject(parent)
-    , priv(new ContextPropertyPrivate(key, this))
+    , priv(new ContextPropertyPrivate(key))
 {
     connect(priv, SIGNAL(valueChanged()), this, SIGNAL(valueChanged()));
     priv->subscribe();
@@ -933,6 +959,7 @@ ContextProperty::ContextProperty(const QString &key, QObject *parent)
 ContextProperty::~ContextProperty()
 {
     disconnect(priv, SIGNAL(valueChanged()), this, SIGNAL(valueChanged()));
+    priv->detach();
 }
 
 QString ContextProperty::key() const
@@ -1004,30 +1031,21 @@ void DiscreteProperty::refresh() const
     impl_->refresh();
 }
 
-PropertyWriter::PropertyWriter
-(QString const &key, QObject *parent)
-    : QObject(parent)
-    , impl_(new PropertyWriterImpl(key, this))
-{
-    connect(impl_, &PropertyWriterImpl::updated
-            , this, &PropertyWriter::updated
-            , Qt::DirectConnection);
-}
-
-void PropertyWriter::set(QVariant v)
-{
-    impl_->set(std::move(v));
-}
-
 DiscretePropertyImpl::DiscretePropertyImpl
 (QString const &key, QObject *parent)
     : QObject(parent)
-    , impl_(make_qobject_unique<ContextPropertyPrivate>(key, this))
+    , ContextPropertyPrivateHandle(key)
 {
-    connect(impl_.get(), &ContextPropertyPrivate::valueChanged
+    connect(impl_, &ContextPropertyPrivate::valueChanged
             , this, &DiscretePropertyImpl::onChanged
             , Qt::DirectConnection);
     impl_->subscribe();
+}
+
+DiscretePropertyImpl::~DiscretePropertyImpl()
+{
+    disconnect(impl_, &ContextPropertyPrivate::valueChanged
+               , this, &DiscretePropertyImpl::onChanged);
 }
 
 void DiscretePropertyImpl::onChanged()
@@ -1040,22 +1058,81 @@ void DiscretePropertyImpl::refresh() const
     impl_->refresh();
 }
 
+PropertyWriter::PropertyWriter
+(QString const &key, QObject *parent)
+    : QObject(parent)
+    , impl_(new PropertyWriterImpl(key))
+{
+    connect(impl_, &PropertyWriterImpl::updated
+            , this, &PropertyWriter::updated
+            , Qt::DirectConnection);
+}
+
 PropertyWriter::~PropertyWriter()
+{
+    disconnect(impl_, &PropertyWriterImpl::updated
+            , this, &PropertyWriter::updated);
+    impl_->detach();
+}
+
+void PropertyWriter::set(QVariant v)
+{
+    impl_->set(std::move(v));
+}
+
+PropertyWriterImpl::PropertyWriterImpl(QString const &key)
+    : key_(key)
 {
 }
 
-PropertyWriterImpl::PropertyWriterImpl
-(QString const &key, QObject *parent)
-    : QObject(parent)
-    , key_(key)
+void PropertyWriterImpl::detach()
 {
+    handle_.reset();
 }
 
 void PropertyWriterImpl::set(QVariant &&v)
 {
-    using namespace ckit;
+    using namespace statefs::qt;
     auto monitor = PropertyMonitor::instance();
-    monitor->postEvent(new WriteRequest(this, key_, std::move(v)));
+    monitor->postEvent(new WriteRequest(handle_, key_, std::move(v)));
+}
+
+template <typename T>
+T *event_cast(char const *src, char const *type_name, QEvent *e)
+{
+    auto res = dynamic_cast<T*>(e);
+    if (!res)
+        debug::warning(src, "Event", e->type(), "isn't", type_name);
+    return res;
+}
+
+#define EVENT_CAST(ev, ev_type) event_cast<ev_type> \
+    ((char const*)__FUNCTION__, (char const*)#ev_type, ev)
+
+bool PropertyWriterImpl::event(QEvent *e)
+{
+    using namespace statefs::qt;
+
+    if (e->type() < QEvent::User)
+        return QObject::event(e);
+
+    auto res = true;
+    auto fn = [this, e, &res]() {
+        auto t = static_cast<Event::Type>(e->type());
+        switch (t) {
+        case Event::WriteStatus: {
+            auto p = EVENT_CAST(e, WriteReply);
+            if (p)
+                emit updated(p->is_updated_);
+            break;
+        }
+        default:
+            debug::warning("Unknown user event");
+            res = QObject::event(e);
+        }
+    };
+    execute_nothrow(fn, __PRETTY_FUNCTION__);
+    return res;
 }
 
 }}

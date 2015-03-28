@@ -29,7 +29,9 @@ class QTimer;
 
 class ContextPropertyPrivate;
 
-namespace ckit {
+namespace statefs { namespace qt {
+
+typedef QSharedPointer<ContextPropertyPrivate> target_handle;
 
 class File
 {
@@ -127,8 +129,6 @@ public:
     bool write(QByteArray const &);
 };
 
-class Adapter;
-
 class Property : public QObject
 {
     Q_OBJECT;
@@ -143,8 +143,8 @@ public:
 
     bool update();
 
-    bool add(QSharedPointer<Adapter> const&);
-    Removed remove(QSharedPointer<Adapter> const &);
+    bool add(target_handle const&);
+    Removed remove(target_handle const &);
 
 private slots:
     void handleActivated(int);
@@ -162,7 +162,7 @@ private:
     mutable QTimer *reopen_timer_;
     bool is_subscribed_;
     QVariant cache_;
-    QSet<QSharedPointer<Adapter> > targets_;
+    QSet<target_handle> targets_;
 };
 
 class SubscribeRequest;
@@ -192,30 +192,17 @@ private:
 };
 
 class ReplyEvent;
-class Adapter : public QObject
-{
-    Q_OBJECT
-public:
-    void postEvent(ReplyEvent *);
-    virtual bool event(QEvent *);
 
-private:
-    friend class ::ContextPropertyPrivate;
-    Adapter(ContextPropertyPrivate *target) : target_(target) {}
-    void onChanged(QVariant);
-    void detach();
-    ContextPropertyPrivate *target_;
-};
+}}
 
-}
+class ContextPropertyPrivateHandle;
 
 class ContextPropertyPrivate : public QObject
 {
     Q_OBJECT;
 
 public:
-    explicit ContextPropertyPrivate(const QString &key, QObject *parent = 0);
-
+    explicit ContextPropertyPrivate(const QString &key);
     virtual ~ContextPropertyPrivate();
 
     QString key() const;
@@ -235,12 +222,17 @@ public:
 
     void refresh() const;
 
+    void postEvent(statefs::qt::ReplyEvent *);
+    virtual bool event(QEvent *);
+
 signals:
     void valueChanged() const;
 
 private:
 
-    friend class ckit::Adapter;
+    friend class ContextProperty;
+    friend class ContextPropertyPrivateHandle;
+    void detach();
     void onChanged(QVariant) const;
 
     enum State {
@@ -252,7 +244,7 @@ private:
 
     bool update(QVariant const&) const;
     bool waitForUnsubscription() const;
-    static ckit::PropertyMonitor::monitor_ptr actor();
+    static statefs::qt::PropertyMonitor::monitor_ptr actor();
     QString key_;
     mutable State state_;
     mutable bool is_cached_;
@@ -260,7 +252,7 @@ private:
 
     mutable std::future<QVariant> on_subscribed_;
     mutable std::future<void> on_unsubscribed_;
-    mutable QSharedPointer<ckit::Adapter> adapter_;
+    mutable QSharedPointer<ContextPropertyPrivate> handle_;
 };
 
 #endif // _STATEFS_CKIT_PROPERTY_HPP_
