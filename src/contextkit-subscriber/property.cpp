@@ -64,6 +64,18 @@ void execute_nothrow(F &&fn, char const *msg)
         });
 }
 
+template <typename T>
+T *event_cast(char const *src, char const *type_name, QEvent *e)
+{
+    auto res = dynamic_cast<T*>(e);
+    if (!res)
+        debug::warning(src, "Event", e->type(), "isn't", type_name);
+    return res;
+}
+
+#define EVENT_CAST(ev, ev_type) event_cast<ev_type> \
+    ((char const*)__FUNCTION__, (char const*)#ev_type, ev)
+
 }
 
 namespace statefs { namespace qt {
@@ -416,35 +428,23 @@ bool PropertyMonitor::event(QEvent *e)
         auto t = static_cast<Event::Type>(e->type());
         switch (t) {
         case Event::Subscribe: {
-            auto p = dynamic_cast<SubscribeRequest*>(e);
-            if (p)
-                subscribe(p);
-            else
-                debug::warning("PropertyMonitor: !SubscribeRequest");
+            auto p = EVENT_CAST(e, SubscribeRequest);
+            if (p) subscribe(p);
             break;
         }
         case Event::Unsubscribe: {
-            auto p = dynamic_cast<UnsubscribeRequest*>(e);
-            if (p)
-                unsubscribe(p);
-            else
-                debug::warning("PropertyMonitor: !UnsubscribeRequest");
+            auto p = EVENT_CAST(e, UnsubscribeRequest);
+            if (p) unsubscribe(p);
             break;
         }
         case Event::Write: {
-            auto p = dynamic_cast<WriteRequest*>(e);
-            if (p)
-                write(p);
-            else
-                debug::warning("Bad WriteRequest");
+            auto p = EVENT_CAST(e, WriteRequest);
+            if (p) write(p);
             break;
         }
         case Event::Refresh: {
-            auto p = dynamic_cast<RefreshRequest*>(e);
-            if (p)
-                refresh(p);
-            else
-                debug::warning("PropertyMonitor: !Refresh");
+            auto p = EVENT_CAST(e, RefreshRequest);
+            if (p) refresh(p);
             break;
         }
         default:
@@ -599,7 +599,7 @@ void Property::trySubscribe()
     } else if (reopen_interval_ < max_interval_) {
         reopen_interval_ += slow_interval_;
     } else {
-        reopen_interval_ = 1000 * 60 * 3;
+        reopen_interval_ = max_interval_;
     }
     reopen_timer_->start(reopen_interval_);
 }
@@ -812,11 +812,8 @@ bool ContextPropertyPrivate::event(QEvent *e)
         auto t = static_cast<Event::Type>(e->type());
         switch (t) {
         case Event::Data: {
-            auto p = dynamic_cast<DataReplyEvent*>(e);
-            if (p)
-                onChanged(std::move(p->data_));
-            else
-                debug::warning("Property: !DataReplyEvent");
+            auto p = EVENT_CAST(e, DataReplyEvent);
+            if (p) onChanged(std::move(p->data_));
             break;
         }
         default:
@@ -1096,18 +1093,6 @@ void PropertyWriterImpl::set(QVariant &&v)
     auto monitor = PropertyMonitor::instance();
     monitor->postEvent(new WriteRequest(handle_, key_, std::move(v)));
 }
-
-template <typename T>
-T *event_cast(char const *src, char const *type_name, QEvent *e)
-{
-    auto res = dynamic_cast<T*>(e);
-    if (!res)
-        debug::warning(src, "Event", e->type(), "isn't", type_name);
-    return res;
-}
-
-#define EVENT_CAST(ev, ev_type) event_cast<ev_type> \
-    ((char const*)__FUNCTION__, (char const*)#ev_type, ev)
 
 bool PropertyWriterImpl::event(QEvent *e)
 {
