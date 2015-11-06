@@ -506,7 +506,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
 {
     auto tgt = req->tgt_;
     auto key = req->key_;
-    Property *handler;
+    std::shared_ptr<Property> handler;
     QVariant retval;
 
     if (!tgt) {
@@ -544,7 +544,6 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
     if (handler->remove(tgt) == Property::Removed::Last) {
         // last subscriber is gone
         properties_.erase(phandlers);
-        handler->deleteLater();
     }
 }
 
@@ -559,9 +558,10 @@ void PropertyMonitor::refresh(RefreshRequest *req)
     handler->update();
 }
 
-Property* PropertyMonitor::add(const QString &key)
+std::shared_ptr<Property> PropertyMonitor::add(const QString &key)
 {
-    auto it = properties_.insert(key, new Property(key, this));
+    auto it = properties_.insert
+        (key, make_qobject_shared<Property>(key, this));
     return it.value();
 }
 

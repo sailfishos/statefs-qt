@@ -181,11 +181,11 @@ public:
 private:
     void subscribe(SubscribeRequest*);
     void unsubscribe(UnsubscribeRequest*);
-    Property *add(const QString &);
+    std::shared_ptr<Property> add(const QString &);
     void write(WriteRequest *);
     void refresh(RefreshRequest*);
 
-    QMap<QString, Property*> properties_;
+    QMap<QString, std::shared_ptr<Property> > properties_;
 
     static std::once_flag once_;
     static monitor_ptr instance_;
