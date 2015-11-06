@@ -17,6 +17,7 @@ BuildRequires: pkgconfig(cor) >= 0.1.17
 BuildRequires: pkgconfig(qtaround) >= 0.2.4
 BuildRequires: pkgconfig(Qt5Core)
 BuildRequires: pkgconfig(Qt5Qml)
+BuildRequires: pkgconfig(tut) >= 0.0.3
 
 %description
 %{summary}
@@ -56,6 +57,12 @@ Requires: statefs-contextkit-subscriber = %{version}-%{release}
 %description %{subscriber_devel}
 Contextkit property interface using statefs instead of contextkit
 
+%package tests
+Summary:    Tests for %{name}
+Group:      System Environment/Libraries
+Requires:   %{name} = %{version}-%{release}
+%description tests
+%summary
 
 %prep
 %setup -q
@@ -98,3 +105,9 @@ rm -rf %{buildroot}
 %{_libdir}/pkgconfig/contextkit-statefs.pc
 %{_libdir}/pkgconfig/contextsubscriber-1.0.pc
 
+%files tests
+%defattr(-,root,root,-)
+/opt/tests/%{name}/*
+
+%post -p /sbin/ldconfig
+%postun -p /sbin/ldconfig
