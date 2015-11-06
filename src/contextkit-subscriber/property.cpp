@@ -133,7 +133,8 @@ public:
         Write,
         Refresh,
         Data,
-        WriteStatus
+        WriteStatus,
+        Ready
     };
 
     virtual ~Event();
@@ -300,6 +301,15 @@ public:
     {}
 
     target_handle tgt_;
+};
+
+
+class DataReadyEvent : public ReplyEvent
+{
+public:
+    DataReadyEvent(target_handle const &tgt)
+        : ReplyEvent(Event::Ready, tgt)
+    {}
 };
 
 class DataReplyEvent : public ReplyEvent
@@ -474,10 +484,10 @@ void PropertyMonitor::write(WriteRequest *req)
     }
 }
 
-void Property::changed(QVariant const &v) const
+void Property::changed() const
 {
-    for (auto tgt : targets_)
-        tgt->postEvent(new DataReplyEvent(v, tgt));
+    for (auto target : targets_)
+        target->dataReady(target);
 }
 
 bool Property::add(target_handle const &target)
@@ -486,6 +496,7 @@ bool Property::add(target_handle const &target)
     auto it = targets_.find(target);
     if (it == targets_.end()) {
         targets_.insert(target);
+        target->attachCache(cache_);
         res = true;
     }
     return res;
@@ -565,12 +576,25 @@ std::shared_ptr<Property> PropertyMonitor::add(const QString &key)
     return it.value();
 }
 
+void Cache::store(QVariant v)
+{
+    QMutexLocker lock(&mutex_);
+    data_ = v;
+}
+
+QVariant Cache::load() const
+{
+    QMutexLocker lock(&mutex_);
+    return data_;
+}
+
 Property::Property(const QString &key, QObject *parent)
     : QObject(parent)
     , file_(key)
     , reopen_interval_(100)
     , reopen_timer_(new QTimer(this))
     , is_subscribed_(false)
+    , cache_(std::make_shared<Cache>())
 {
     reopen_timer_->setSingleShot(true);
     connect(reopen_timer_, SIGNAL(timeout()), this, SLOT(trySubscribe()));
@@ -622,7 +646,7 @@ bool Property::update()
 
     if (!file_.tryOpen()) {
         debug::warning("Can't open ", file_.fileName());
-        cache_ = statefs::qt::valueDefault(cache_);
+        cache_->store(statefs::qt::valueDefault(cache_->load()));
         resubscribe();
         return is_updated;
     }
@@ -659,19 +683,24 @@ bool Property::update()
         rc = bytes_read;
     }
     touchFile.close();
+    QVariant value, prev_value;
     if (rc >= 0) {
         buffer_[(int)rc] = '\0';
         auto s = QString(buffer_);
+        prev_value = cache_->load();
         if (s.size()) {
-            cache_ = statefs::qt::valueDecode(s);
+            value = statefs::qt::valueDecode(s);
         } else {
-            if (cache_.isNull()) {
-                cache_ = s;
+            if (prev_value.isNull()) {
+                value = s;
             } else {
-                cache_ = statefs::qt::valueDefault(cache_);
+                value = statefs::qt::valueDefault(prev_value);
             }
         }
-        is_updated = true;
+        if (value != prev_value) {
+            cache_->store(value);
+            is_updated = true;
+        }
     } else {
         debug::warning("Error accessing? ", rc, "..." + file_.fileName());
         resubscribe();
@@ -683,12 +712,12 @@ bool Property::update()
 void Property::handleActivated(int)
 {
     if (update())
-        changed(cache_);
+        changed();
 }
 
 QVariant Property::subscribe()
 {
-    return (!is_subscribed_ ? subscribe_() : cache_);
+    return (!is_subscribed_ ? subscribe_() : cache_->load());
 }
 
 QVariant Property::subscribe_()
@@ -702,9 +731,9 @@ QVariant Property::subscribe_()
     file_.connect(this, &Property::handleActivated);
 
     if (update())
-        changed(cache_);
+        changed();
 
-    return cache_;
+    return cache_->load();
 }
 
 void Property::unsubscribe()
@@ -725,6 +754,7 @@ ContextPropertyPrivate::ContextPropertyPrivate(const QString &key)
     , state_(Initial)
     , is_cached_(false)
     , handle_(this)
+    , update_queued_(ATOMIC_FLAG_INIT)
 {
 }
 
@@ -804,6 +834,7 @@ bool ContextPropertyPrivate::event(QEvent *e)
 {
     using statefs::qt::Event;
     using statefs::qt::DataReplyEvent;
+    using statefs::qt::DataReadyEvent;
     if (e->type() < QEvent::User)
         return QObject::event(e);
 
@@ -816,8 +847,13 @@ bool ContextPropertyPrivate::event(QEvent *e)
             if (p) onChanged(std::move(p->data_));
             break;
         }
+        case Event::Ready: {
+            auto p = EVENT_CAST(e, DataReadyEvent);
+            if (p) updateFromRemoteCache(p);
+            break;
+        }
         default:
-            debug::warning("Unknown user event");
+            debug::warning("Unknown user event", t);
             res = QObject::event(e);
         }
     };
@@ -944,6 +980,31 @@ void ContextPropertyPrivate::refresh() const
     using statefs::qt::RefreshRequest;
     actor()->postEvent(new RefreshRequest(this->handle_, key_));
 }
+
+void ContextPropertyPrivate::attachCache(std::shared_ptr<statefs::qt::Cache> cache) const
+{
+    // called from other thread
+    remote_cache_ = cache;
+}
+
+void ContextPropertyPrivate::dataReady(statefs::qt::target_handle self_handle)
+{
+    // called from other thread
+    if (!update_queued_.test_and_set(std::memory_order_acquire)) {
+        postEvent(new statefs::qt::DataReadyEvent(self_handle));
+    }
+}
+
+void ContextPropertyPrivate::updateFromRemoteCache(statefs::qt::DataReadyEvent *)
+{
+    // called from the object thread
+    update_queued_.clear(std::memory_order_release);
+    // cache is attached from an other thread, so save pointer copy
+    auto pcache = remote_cache_;
+    if (pcache)
+        onChanged(remote_cache_->load());
+}
+
 
 ContextProperty::ContextProperty(const QString &key, QObject *parent)
     : QObject(parent)

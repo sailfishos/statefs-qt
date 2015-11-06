@@ -129,6 +129,17 @@ public:
     bool write(QByteArray const &);
 };
 
+class Cache {
+public:
+    Cache() {}
+
+    void store(QVariant v);
+    QVariant load() const;
+private:
+    mutable QMutex mutex_;
+    QVariant data_;
+};
+
 class Property : public QObject
 {
     Q_OBJECT;
@@ -154,14 +165,14 @@ private:
     bool tryOpen();
     void resubscribe();
     QVariant subscribe_();
-    void changed(QVariant const&) const;
+    void changed() const;
 
     FileReader file_;
     QByteArray buffer_;
     mutable int reopen_interval_;
     mutable QTimer *reopen_timer_;
     bool is_subscribed_;
-    QVariant cache_;
+    std::shared_ptr<Cache> cache_;
     QSet<target_handle> targets_;
 };
 
@@ -192,6 +203,7 @@ private:
 };
 
 class ReplyEvent;
+class DataReadyEvent;
 
 }}
 
@@ -232,6 +244,7 @@ private:
 
     friend class ContextProperty;
     friend class ContextPropertyPrivateHandle;
+
     void detach();
     void onChanged(QVariant) const;
 
@@ -253,6 +266,15 @@ private:
     mutable std::future<QVariant> on_subscribed_;
     mutable std::future<void> on_unsubscribed_;
     mutable QSharedPointer<ContextPropertyPrivate> handle_;
+
+    // TODO move functionality to the separate interface
+    friend class statefs::qt::Property;
+    void attachCache(std::shared_ptr<statefs::qt::Cache>) const;
+    void dataReady(statefs::qt::target_handle);
+    void updateFromRemoteCache(statefs::qt::DataReadyEvent *);
+
+    mutable std::shared_ptr<statefs::qt::Cache> remote_cache_;
+    mutable std::atomic_flag update_queued_;
 };
 
 #endif // _STATEFS_CKIT_PROPERTY_HPP_
