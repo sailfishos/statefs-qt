@@ -722,6 +722,9 @@ QVariant Property::subscribe()
 
 QVariant Property::subscribe_()
 {
+    if (reopen_timer_->isActive())
+        return QVariant();
+
     if (!file_.tryOpen()) {
         reopen_timer_->start(reopen_interval_);
         return QVariant();
