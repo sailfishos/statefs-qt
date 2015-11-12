@@ -269,11 +269,12 @@ private:
 
     // TODO move functionality to the separate interface
     friend class statefs::qt::Property;
+    friend class statefs::qt::SubscribeRequest;
     void attachCache(std::shared_ptr<statefs::qt::Cache>) const;
     void dataReady(statefs::qt::target_handle);
     void updateFromRemoteCache(statefs::qt::DataReadyEvent *);
 
-    mutable std::shared_ptr<statefs::qt::Cache> remote_cache_;
+    mutable std::weak_ptr<statefs::qt::Cache> remote_cache_;
     mutable std::atomic_flag update_queued_;
 };
 

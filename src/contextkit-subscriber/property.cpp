@@ -132,7 +132,6 @@ public:
         Subscribed,
         Write,
         Refresh,
-        Data,
         WriteStatus,
         Ready
     };
@@ -312,17 +311,6 @@ public:
     {}
 };
 
-class DataReplyEvent : public ReplyEvent
-{
-public:
-    DataReplyEvent(QVariant v, target_handle const &tgt)
-        : ReplyEvent(Event::Data, tgt)
-        , data_(std::move(v))
-    {}
-
-    QVariant data_;
-};
-
 class SubscribeRequest : public Event
 {
 public:
@@ -348,7 +336,7 @@ private:
 SubscribeRequest::~SubscribeRequest()
 {
     auto notify_fn = [this]() {
-        tgt_->postEvent(new DataReplyEvent(result, tgt_));
+        tgt_->dataReady(tgt_);
         value_.set_value(result);
     };
     execute_nothrow(notify_fn, __PRETTY_FUNCTION__);
@@ -820,11 +808,14 @@ PropertyMonitor::monitor_ptr ContextPropertyPrivate::actor()
 
 void ContextPropertyPrivate::onChanged(QVariant v) const
 {
-    if (state_ == Subscribing)
+    bool subscribing = state_ == Subscribing;
+    if (subscribing)
         state_ = Subscribed;
 
-    if (update(v))
+    if (update(v) || subscribing) {
+        debug::debug("Notify data ready", key_, v);
         emit valueChanged();
+    }
 }
 
 void ContextPropertyPrivate::postEvent(ReplyEvent *e)
@@ -836,7 +827,6 @@ void ContextPropertyPrivate::postEvent(ReplyEvent *e)
 bool ContextPropertyPrivate::event(QEvent *e)
 {
     using statefs::qt::Event;
-    using statefs::qt::DataReplyEvent;
     using statefs::qt::DataReadyEvent;
     if (e->type() < QEvent::User)
         return QObject::event(e);
@@ -845,11 +835,6 @@ bool ContextPropertyPrivate::event(QEvent *e)
     auto fn = [this, e, &res]() {
         auto t = static_cast<Event::Type>(e->type());
         switch (t) {
-        case Event::Data: {
-            auto p = EVENT_CAST(e, DataReplyEvent);
-            if (p) onChanged(std::move(p->data_));
-            break;
-        }
         case Event::Ready: {
             auto p = EVENT_CAST(e, DataReadyEvent);
             if (p) updateFromRemoteCache(p);
@@ -1003,9 +988,9 @@ void ContextPropertyPrivate::updateFromRemoteCache(statefs::qt::DataReadyEvent *
     // called from the object thread
     update_queued_.clear(std::memory_order_release);
     // cache is attached from an other thread, so save pointer copy
-    auto pcache = remote_cache_;
+    auto pcache = remote_cache_.lock();
     if (pcache)
-        onChanged(remote_cache_->load());
+        onChanged(pcache->load());
 }
 
 
