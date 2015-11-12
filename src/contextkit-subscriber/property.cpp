@@ -474,6 +474,7 @@ void PropertyMonitor::write(WriteRequest *req)
 
 void Property::changed() const
 {
+    debug::debug("Notify", file_.key(), targets_.size(), "targets");
     for (auto target : targets_)
         target->dataReady(target);
 }
@@ -508,6 +509,7 @@ void PropertyMonitor::subscribe(SubscribeRequest *req)
     std::shared_ptr<Property> handler;
     QVariant retval;
 
+    debug::debug("Subcribe request:", tgt, key);
     if (!tgt) {
         debug::warning("Logic issue: subscription target is null");
         return;
@@ -533,6 +535,8 @@ void PropertyMonitor::unsubscribe(UnsubscribeRequest *req)
 {
     auto tgt = req->tgt_;
     auto key = req->key_;
+
+    debug::debug("Unsubcribe request:", tgt, key);
 
     auto phandlers = properties_.find(key);
     if (phandlers == properties_.end())
@@ -688,6 +692,7 @@ bool Property::update()
         if (value != prev_value) {
             cache_->store(value);
             is_updated = true;
+            debug::debug("Updated", file_.key(), value);
         }
     } else {
         debug::warning("Error accessing? ", rc, "..." + file_.fileName());
@@ -837,6 +842,7 @@ bool ContextPropertyPrivate::event(QEvent *e)
         switch (t) {
         case Event::Ready: {
             auto p = EVENT_CAST(e, DataReadyEvent);
+            debug::debug("Data ready:", this, key_);
             if (p) updateFromRemoteCache(p);
             break;
         }
