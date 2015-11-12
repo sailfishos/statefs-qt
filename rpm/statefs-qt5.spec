@@ -57,6 +57,22 @@ Requires: statefs-contextkit-subscriber = %{version}-%{release}
 %description %{subscriber_devel}
 Contextkit property interface using statefs instead of contextkit
 
+%package -n statefs-declarative-qt5
+Summary: Statefs QML plugin
+Group: System Environment/Libraries
+Requires: statefs-contextkit-subscriber = %{version}-%{release}
+%description -n statefs-declarative-qt5
+%{summary}
+
+%package -n contextkit-declarative-qt5
+Summary: Contextkit QML plugin
+Group: System Environment/Libraries
+Requires: statefs-contextkit-subscriber = %{version}-%{release}
+Obsoletes: nemo-qml-plugin-contextkit-qt5 <= 1.1.8
+Provides: nemo-qml-plugin-contextkit-qt5 = 1.1.9
+%description -n contextkit-declarative-qt5
+%{summary}
+
 %package tests
 Summary:    Tests for %{name}
 Group:      System Environment/Libraries
@@ -86,6 +102,7 @@ rm -rf %{buildroot}
 
 %files devel
 %defattr(-,root,root,-)
+%dir %{_libqt5_includedir}/statefs/qt
 %{_libqt5_includedir}/statefs/qt/*.hpp
 %{_libdir}/pkgconfig/statefs-qt5.pc
 
@@ -97,7 +114,6 @@ rm -rf %{buildroot}
 %defattr(-,root,root,-)
 %{_libdir}/libcontextkit-statefs-qt5.so
 %{_bindir}/contextkit-monitor
-%{_libdir}/qt5/qml/Mer/State/*
 
 %files %{subscriber_devel}
 %defattr(-,root,root,-)
@@ -105,9 +121,27 @@ rm -rf %{buildroot}
 %{_libdir}/pkgconfig/contextkit-statefs.pc
 %{_libdir}/pkgconfig/contextsubscriber-1.0.pc
 
+
+%files -n statefs-declarative-qt5
+%defattr(-,root,root,-)
+%{_libdir}/qt5/qml/Mer/State/*
+
+%files -n contextkit-declarative-qt5
+%defattr(-,root,root,-)
+%{_libdir}/qt5/qml/org/freedesktop/contextkit/*
+
 %files tests
 %defattr(-,root,root,-)
 /opt/tests/%{name}/*
 
 %post -p /sbin/ldconfig
 %postun -p /sbin/ldconfig
+
+%post %{subscriber} -p /sbin/ldconfig
+%postun %{subscriber} -p /sbin/ldconfig
+
+%post -n statefs-declarative-qt5 -p /sbin/ldconfig
+%postun -n statefs-declarative-qt5 -p /sbin/ldconfig
+
+%post -n contextkit-declarative-qt5 -p /sbin/ldconfig
+%postun -n contextkit-declarative-qt5 -p /sbin/ldconfig

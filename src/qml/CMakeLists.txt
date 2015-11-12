@@ -20,3 +20,17 @@ set_target_properties(statefs-declarative PROPERTIES
 
 install(TARGETS statefs-declarative DESTINATION ${DST_LIB}/qt5/qml/Mer/State)
 install(FILES qmldir DESTINATION ${DST_LIB}/qt5/qml/Mer/State)
+
+add_library(contextkit
+  SHARED
+  contextkit_plugin.cpp contextkit_property.cpp
+)
+qt5_use_modules(contextkit Qml)
+target_link_libraries(contextkit
+  contextkit-statefs-qt5
+)
+
+install(TARGETS contextkit DESTINATION ${DST_LIB}/qt5/qml/org/freedesktop/contextkit)
+install(FILES contextkit-qmldir
+  DESTINATION ${DST_LIB}/qt5/qml/org/freedesktop/contextkit
+  RENAME qmldir)
