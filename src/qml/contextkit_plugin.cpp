@@ -5,12 +5,12 @@
  * @par License: LGPL 2.1 http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
  */
 
-#include "plugin.hpp"
-#include "property.hpp"
+#include "contextkit_plugin.hpp"
+#include "contextkit_property.hpp"
 
 #include <qqml.h>
 
-void StatefsPlugin::registerTypes(char const* uri)
+void ContextkitPlugin::registerTypes(char const* uri)
 {
-    qmlRegisterType<StateProperty>(uri, 1, 1, "StateProperty");
+    qmlRegisterType<ContextPropertyDeclarative>(uri, 1, 0, "ContextProperty");
 }
