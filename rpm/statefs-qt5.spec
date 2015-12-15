@@ -6,9 +6,9 @@ Summary: Statefs Qt bindings
 Name: statefs-qt5
 Version: x.x.x
 Release: 1
-License: LGPLv2
+License: LGPLv2.1
 Group: System Environment/Tools
-URL: http://github.com/nemomobile/statefs-qt
+URL: https://git.merproject.org/mer-core/statefs-qt
 Source0: %{name}-%{version}.tar.bz2
 BuildRequires: cmake >= 2.8
 BuildRequires: statefs >= 0.3.18
@@ -93,9 +93,6 @@ rm -rf %{buildroot}
 %cmake_install
 make doc
 
-%clean
-rm -rf %{buildroot}
-
 %files
 %defattr(-,root,root,-)
 %{_libdir}/libstatefs-qt5.so
@@ -120,7 +117,6 @@ rm -rf %{buildroot}
 %{_includedir}/contextproperty.h
 %{_libdir}/pkgconfig/contextkit-statefs.pc
 %{_libdir}/pkgconfig/contextsubscriber-1.0.pc
-
 
 %files -n statefs-declarative-qt5
 %defattr(-,root,root,-)
