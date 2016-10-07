@@ -96,6 +96,7 @@ make doc
 %files
 %defattr(-,root,root,-)
 %{_libdir}/libstatefs-qt5.so
+%doc COPYING
 
 %files devel
 %defattr(-,root,root,-)
