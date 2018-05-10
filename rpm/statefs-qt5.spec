@@ -33,9 +33,6 @@ Requires: %{name} = %{version}-%{release}
 Summary: StateFS Qt5 bindings documentation
 Group: Documenation
 BuildRequires: doxygen
-%if 0%{?_with_docs:1}
-BuildRequires: graphviz
-%endif
 %description doc
 %{summary}
 
