@@ -37,3 +37,8 @@ install(FILES contextkit-qmldir
 install(FILES contextkit-plugins.qmltypes
   DESTINATION ${DST_LIB}/qt5/qml/org/freedesktop/contextkit
   RENAME plugins.qmltypes)
+
+add_custom_target(qmltypes
+  COMMAND qmlplugindump -nonrelocatable Mer.State 1.1 > plugins.qmltypes
+  COMMAND qmlplugindump -nonrelocatable org.freedesktop.contextkit 1.0 > contextkit-plugins.qmltypes
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
