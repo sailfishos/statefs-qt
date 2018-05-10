@@ -85,7 +85,7 @@ Requires:   %{name} = %{version}-%{release}
 
 %build
 %cmake -DVERSION=%{version} %{?_with_multiarch:-DENABLE_MULTIARCH=ON}
-make %{?jobs:-j%jobs}
+make %{?_smp_mflags}
 make doc
 
 %install
