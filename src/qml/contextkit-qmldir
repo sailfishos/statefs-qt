@@ -1,2 +1,3 @@
 module org.freedesktop.contextkit
 plugin contextkit
+typeinfo plugins.qmltypes
