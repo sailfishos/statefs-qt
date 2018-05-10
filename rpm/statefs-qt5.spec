@@ -1,5 +1,5 @@
-%{!?cmake_install: %global cmake_install make install DESTDIR=%{buildroot}}
-%{!?_libqt5_includedir: %global _libqt5_includedir %{_qt5_headerdir}}
+%{!?cmake_install: %define cmake_install make install DESTDIR=%{buildroot}}
+%{!?_libqt5_includedir: %define _libqt5_includedir %{_qt5_headerdir}}
 
 
 Summary: Statefs Qt bindings
