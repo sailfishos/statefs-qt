@@ -1,5 +1,5 @@
-%{!?cmake_install: %global cmake_install make install DESTDIR=%{buildroot}}
-%{!?_libqt5_includedir: %global _libqt5_includedir %{_qt5_headerdir}}
+%{!?cmake_install: %define cmake_install make install DESTDIR=%{buildroot}}
+%{!?_libqt5_includedir: %define _libqt5_includedir %{_qt5_headerdir}}
 
 
 Summary: Statefs Qt bindings
@@ -33,9 +33,6 @@ Requires: %{name} = %{version}-%{release}
 Summary: StateFS Qt5 bindings documentation
 Group: Documenation
 BuildRequires: doxygen
-%if 0%{?_with_docs:1}
-BuildRequires: graphviz
-%endif
 %description doc
 %{summary}
 
@@ -85,7 +82,7 @@ Requires:   %{name} = %{version}-%{release}
 
 %build
 %cmake -DVERSION=%{version} %{?_with_multiarch:-DENABLE_MULTIARCH=ON}
-make %{?jobs:-j%jobs}
+make %{?_smp_mflags}
 make doc
 
 %install
