@@ -7,7 +7,7 @@ import QtQuick.tooling 1.2
 // 'qmlplugindump -nonrelocatable Mer.State 1.1'
 
 Module {
-    dependencies: []
+    dependencies: ["QtQuick 2.0"]
     Component {
         name: "StateProperty"
         defaultProperty: "value"

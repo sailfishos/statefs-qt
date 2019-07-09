@@ -7,7 +7,7 @@ import QtQuick.tooling 1.2
 // 'qmlplugindump -nonrelocatable org.freedesktop.contextkit 1.0'
 
 Module {
-    dependencies: []
+    dependencies: ["QtQuick 2.0"]
     Component {
         name: "ContextPropertyDeclarative"
         defaultProperty: "value"
