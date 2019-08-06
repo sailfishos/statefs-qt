@@ -3,12 +3,12 @@
 
 
 Summary: Statefs Qt bindings
-Name: statefs-qt5
+Name:    statefs-qt5
 Version: x.x.x
 Release: 1
-License: LGPLv2.1
-Group: System Environment/Tools
-URL: https://git.merproject.org/mer-core/statefs-qt
+License: LGPLv2
+Group:   System Environment/Tools
+URL:     https://git.sailfishos.org/mer-core/statefs-qt
 Source0: %{name}-%{version}.tar.bz2
 BuildRequires: cmake >= 2.8
 BuildRequires: statefs >= 0.3.18
