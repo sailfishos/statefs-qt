@@ -30,15 +30,15 @@ target_link_libraries(contextkit
   contextkit-statefs-qt5
 )
 
-install(TARGETS contextkit DESTINATION ${DST_LIB}/qt5/qml/org/freedesktop/contextkit)
+install(TARGETS contextkit DESTINATION ${DST_LIB}/qt5/qml/Nemo/StateFs)
 install(FILES contextkit-qmldir
-  DESTINATION ${DST_LIB}/qt5/qml/org/freedesktop/contextkit
+  DESTINATION ${DST_LIB}/qt5/qml/Nemo/StateFs
   RENAME qmldir)
 install(FILES contextkit-plugins.qmltypes
-  DESTINATION ${DST_LIB}/qt5/qml/org/freedesktop/contextkit
+  DESTINATION ${DST_LIB}/qt5/qml/Nemo/StateFs
   RENAME plugins.qmltypes)
 
 add_custom_target(qmltypes
   COMMAND qmlplugindump -nonrelocatable Mer.State 1.1 > plugins.qmltypes
-  COMMAND qmlplugindump -nonrelocatable org.freedesktop.contextkit 1.0 > contextkit-plugins.qmltypes
+  COMMAND qmlplugindump -nonrelocatable Nemo.StateFs 1.0 > contextkit-plugins.qmltypes
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
