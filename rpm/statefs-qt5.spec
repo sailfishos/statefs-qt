@@ -61,13 +61,11 @@ Requires: statefs-contextkit-subscriber = %{version}-%{release}
 %description -n statefs-declarative-qt5
 %{summary}
 
-%package -n contextkit-declarative-qt5
-Summary: Contextkit QML plugin
+%package -n contextkit-statefs-declarative-qt5
+Summary: Contextkit QML plugin implemented with StateFS backend
 Group: System Environment/Libraries
 Requires: statefs-contextkit-subscriber = %{version}-%{release}
-Obsoletes: nemo-qml-plugin-contextkit-qt5 <= 1.1.8
-Provides: nemo-qml-plugin-contextkit-qt5 = 1.1.9
-%description -n contextkit-declarative-qt5
+%description -n contextkit-statefs-declarative-qt5
 %{summary}
 
 %package tests
@@ -120,9 +118,9 @@ make doc
 %defattr(-,root,root,-)
 %{_libdir}/qt5/qml/Mer/State/*
 
-%files -n contextkit-declarative-qt5
+%files -n contextkit-statefs-declarative-qt5
 %defattr(-,root,root,-)
-%{_libdir}/qt5/qml/org/freedesktop/contextkit/*
+%{_libdir}/qt5/qml/Nemo/StateFs/*
 
 %files tests
 %defattr(-,root,root,-)
@@ -137,5 +135,5 @@ make doc
 %post -n statefs-declarative-qt5 -p /sbin/ldconfig
 %postun -n statefs-declarative-qt5 -p /sbin/ldconfig
 
-%post -n contextkit-declarative-qt5 -p /sbin/ldconfig
-%postun -n contextkit-declarative-qt5 -p /sbin/ldconfig
+%post -n contextkit-statefs-declarative-qt5 -p /sbin/ldconfig
+%postun -n contextkit-statefs-declarative-qt5 -p /sbin/ldconfig
