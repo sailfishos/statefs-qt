@@ -18,6 +18,7 @@ BuildRequires: pkgconfig(qtaround) >= 0.2.4
 BuildRequires: pkgconfig(Qt5Core)
 BuildRequires: pkgconfig(Qt5Qml)
 BuildRequires: pkgconfig(tut) >= 0.0.3
+ExcludeArch:   aarch64 
 
 %description
 %{summary}
